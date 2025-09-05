@@ -1,6 +1,7 @@
 package org.contentauth.c2pa.test.shared
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -15,11 +16,23 @@ import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
 import org.contentauth.c2pa.SignerInfo
 import org.contentauth.c2pa.SigningAlgorithm
+import org.contentauth.c2pa.manifest.Action
+import org.contentauth.c2pa.manifest.ActionsAttestation
+import org.contentauth.c2pa.manifest.AttestationBuilder
+import org.contentauth.c2pa.manifest.C2PAActions
+import org.contentauth.c2pa.manifest.C2PAAssertionTypes
+import org.contentauth.c2pa.manifest.C2PAFormats
+import org.contentauth.c2pa.manifest.ManifestHelpers
+import org.contentauth.c2pa.manifest.Thumbnail
 
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Shared test suite base class for C2PA functionality.
@@ -209,12 +222,9 @@ abstract class TestSuiteCore {
 
     suspend fun testBuilderAPI(): TestResult = withContext(Dispatchers.IO) {
         runTest("Builder API") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [
-                    {"label": "c2pa.test", "data": {"test": true}}
-                ]
-            }"""
+
+            // Basic image manifest
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -394,12 +404,10 @@ abstract class TestSuiteCore {
 
         // Test 5: Builder API
         results.add(runTest("Builder API") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [
-                    {"label": "c2pa.test", "data": {"test": true}}
-                ]
-            }"""
+
+            // Basic image manifest
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
+
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -446,10 +454,9 @@ abstract class TestSuiteCore {
 
         // Test 6: Builder No-Embed
         results.add(runTest("Builder No-Embed") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            // Basic image manifest
+            val manifestJson = getTestManifestAdvanced("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -676,10 +683,7 @@ abstract class TestSuiteCore {
 
         // Test 10: Builder Remote URL
         results.add(runTest("Builder Remote URL") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -711,10 +715,8 @@ abstract class TestSuiteCore {
 
         // Test 11: Builder Add Resource
         results.add(runTest("Builder Add Resource") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -751,10 +753,8 @@ abstract class TestSuiteCore {
 
         // Test 12: Builder Add Ingredient
         results.add(runTest("Builder Add Ingredient") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -792,10 +792,8 @@ abstract class TestSuiteCore {
 
         // Test 13: Builder from Archive
         results.add(runTest("Builder from Archive") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val originalBuilder = Builder.fromJson(manifestJson)
@@ -851,12 +849,7 @@ abstract class TestSuiteCore {
         // Test 14: Reader with Manifest Data
         results.add(runTest("Reader with Manifest Data") {
             try {
-                val manifestJson = """{
-                    "claim_generator": "test_app/1.0",
-                    "assertions": [
-                        {"label": "c2pa.test", "data": {"test": true}}
-                    ]
-                }"""
+                val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
                 val builder = Builder.fromJson(manifestJson)
                 try {
@@ -914,10 +907,8 @@ abstract class TestSuiteCore {
 
         // Test 15: Signer with Callback
         results.add(runTest("Signer with Callback") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -1032,10 +1023,8 @@ abstract class TestSuiteCore {
 
         // Test 17: Write-Only Streams
         results.add(runTest("Write-Only Streams") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val builder = Builder.fromJson(manifestJson)
@@ -1154,10 +1143,8 @@ abstract class TestSuiteCore {
 
         // Test 20: Web Service Signer Creation
         results.add(runTest("Web Service Real Signing & Verification") {
-            val manifestJson = """{
-                "claim_generator": "test_app/1.0",
-                "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-            }"""
+
+            val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
             try {
                 val certPem = loadResourceAsString("es256_certs")
@@ -1544,10 +1531,7 @@ abstract class TestSuiteCore {
                 val keyPem = loadResourceAsString("es256_private")
                 val signerInfo = SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)
 
-                val manifestJson = """{
-                    "claim_generator": "test_app/1.0",
-                    "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
-                }"""
+                val manifestJson = getTestManifest("pexels_asadphoto_457882.jpg")
 
                 val result = C2PA.signFile(
                     sourceFile.absolutePath,
@@ -1577,6 +1561,7 @@ abstract class TestSuiteCore {
 
             try {
                 val reader = Reader.fromStream("image/jpeg", memStream.stream)
+
                 try {
                     val originalJson = reader.json()
                     val json1 = JSONObject(originalJson)
@@ -1780,4 +1765,87 @@ abstract class TestSuiteCore {
             0xFF.toByte(), 0xD9.toByte()
         )
     }
+
+    private fun getTestManifest(title: String): String {
+        // Basic image manifest
+        val manifestJson = ManifestHelpers.createBasicImageManifest(
+            title = title,
+            format = C2PAFormats.JPEG
+        ).claimGenerator("Android Test Suite","1.0.0")
+            .addAction(Action(C2PAActions.OPENED, whenTimestamp = getCurrentTimestamp(),"Android Test Suite"))
+            .addAssertion("c2pa.test","{\"test\": true}")
+            .buildJson()
+
+        return manifestJson
+    }
+
+    private fun getTestManifestAdvanced(title: String): String {
+
+        // Basic image manifest
+        val manifestBuilder = ManifestHelpers.createBasicImageManifest(
+            title = title,
+            format = C2PAFormats.JPEG
+        ).claimGenerator("Android Test Suite","1.0.0")
+            .addAction(Action(C2PAActions.PLACED, whenTimestamp = getCurrentTimestamp(),"Android Test Suite"))
+            .addAssertion("c2pa.test","{\"test\": true}")
+            .addThumbnail(Thumbnail(C2PAFormats.JPEG,"${title}_thumb.jpg"))
+
+        val attestationBuilder = AttestationBuilder()
+
+        attestationBuilder.addCreativeWork {
+            addAuthor("Test Author")
+            dateCreated(Date())
+        }
+
+        attestationBuilder.addCreativeWork {
+            addAuthor("Test Author")
+            dateCreated(Date())
+        }
+
+        val locationJson = JSONObject().apply {
+            put("@type", "Place")
+            put("latitude", "0.0")
+            put("longitude", "0.0")
+            put("name", "Somewhere")
+        }
+
+        attestationBuilder.addAssertionMetadata {
+            dateTime(getCurrentTimestamp())
+            device("Test Device")
+            location(locationJson)
+        }
+
+        val customAttestationJson = JSONObject().apply {
+            put("@type", "Integrity")
+            put("nonce", "something")
+            put("response", "b64encodedresponse")
+        }
+
+        attestationBuilder.addCustomAttestation("app.integrity", customAttestationJson)
+
+        attestationBuilder.addCAWGIdentity {
+            validFromNow()
+            addInstagramIdentity("photographer_john", "2024-10-08T18:04:08Z")
+            addLinkedInIdentity("John Smith", "https://www.linkedin.com/in/jsmith", "2024-10-08T18:03:41Z")
+            addBehanceIdentity("johnsmith_photos", "2024-10-22T19:31:17Z")
+        }
+
+        attestationBuilder.buildForManifest(manifestBuilder)
+
+        manifestBuilder.addAction(Action(C2PAActions.RECOMPRESSED, getCurrentTimestamp(), "Photo Resizer"))
+
+        val resultJson = manifestBuilder.buildJson()
+
+        Log.d("Test Manifest",resultJson)
+
+        return resultJson
+    }
+
+    private fun getCurrentTimestamp(): String {
+        val iso8601 = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        return iso8601.format(Date())
+    }
+
 }
