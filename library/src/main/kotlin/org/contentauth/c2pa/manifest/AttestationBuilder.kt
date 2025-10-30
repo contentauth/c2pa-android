@@ -70,37 +70,37 @@ class ActionsAttestation : Attestation("c2pa.actions") {
         return this
     }
 
-    fun addCreatedAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addCreatedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.CREATED, whenTimestamp, softwareAgent))
         return this
     }
 
-    fun addEditedAction(softwareAgent: String? = null, whenTimestamp: String? = null, changes: List<ActionChange> = emptyList()): ActionsAttestation {
+    fun addEditedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null, changes: List<ActionChange> = emptyList()): ActionsAttestation {
         actionsList.add(Action(C2PAActions.EDITED, whenTimestamp, softwareAgent, changes))
         return this
     }
 
-    fun addOpenedAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addOpenedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.OPENED, whenTimestamp, softwareAgent))
         return this
     }
 
-    fun addPlacedAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addPlacedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.PLACED, whenTimestamp, softwareAgent))
         return this
     }
 
-    fun addDrawingAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addDrawingAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.DRAWING, whenTimestamp, softwareAgent))
         return this
     }
 
-    fun addColorAdjustmentsAction(softwareAgent: String? = null, whenTimestamp: String? = null, parameters: Map<String, Any> = emptyMap()): ActionsAttestation {
+    fun addColorAdjustmentsAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null, parameters: Map<String, Any> = emptyMap()): ActionsAttestation {
         actionsList.add(Action(C2PAActions.COLOR_ADJUSTMENTS, whenTimestamp, softwareAgent, emptyList(), null, parameters))
         return this
     }
 
-    fun addResizedAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addResizedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.RESIZED, whenTimestamp, softwareAgent))
         return this
     }
@@ -114,7 +114,7 @@ class ActionsAttestation : Attestation("c2pa.actions") {
                         action.whenTimestamp?.let { put("when", it) }
                         action.softwareAgent?.let { put("softwareAgent", it) }
                         action.reason?.let { put("reason", it) }
-                        
+
                         if (action.changes.isNotEmpty()) {
                             put("changes", JSONArray().apply {
                                 action.changes.forEach { change ->
@@ -125,7 +125,7 @@ class ActionsAttestation : Attestation("c2pa.actions") {
                                 }
                             })
                         }
-                        
+
                         if (action.parameters.isNotEmpty()) {
                             val params = JSONObject()
                             action.parameters.forEach { (key, value) ->

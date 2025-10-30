@@ -5,7 +5,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 object  ManifestHelpers {
-    
+
     fun createBasicImageManifest(
         title: String,
         format: String = C2PAFormats.JPEG,
@@ -17,7 +17,7 @@ object  ManifestHelpers {
             .title(title)
             .format(format)
             .claimGenerator(claimGeneratorName, claimGeneratorVersion)
-        
+
         timestampAuthorityUrl?.let { builder.timestampAuthorityUrl(it) }
         return builder
     }
@@ -27,7 +27,7 @@ object  ManifestHelpers {
         originalIngredientTitle: String,
         originalFormat: String = C2PAFormats.JPEG,
         format: String = C2PAFormats.JPEG,
-        softwareAgent: String? = null,
+        softwareAgent: SoftwareAgent? = null,
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
@@ -36,7 +36,7 @@ object  ManifestHelpers {
             format = originalFormat,
             relationship = C2PARelationships.PARENT_OF
         )
-        
+
         return ManifestBuilder()
             .title(title)
             .format(format)
@@ -58,6 +58,9 @@ object  ManifestHelpers {
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
+
+        var softwareAgent = SoftwareAgent(deviceName!!, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         val builder = ManifestBuilder()
             .title(title)
             .format(format)
@@ -65,25 +68,26 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.CREATED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = deviceName
+                softwareAgent = softwareAgent,
+                digitalSourceType = DigitalSourceTypes.DIGITAL_CAPTURE
             ))
 
         if (authorName != null || deviceName != null || location != null) {
             val attestationBuilder = AttestationBuilder()
-            
+
             if (authorName != null) {
                 attestationBuilder.addCreativeWork {
                     addAuthor(authorName)
                     dateCreated(Date())
                 }
             }
-            
+
             attestationBuilder.addAssertionMetadata {
                 dateTime(getCurrentTimestamp())
                 deviceName?.let { device(it) }
                 location?.let { location(it) }
             }
-            
+
             attestationBuilder.buildForManifest(builder)
         }
 
@@ -105,7 +109,7 @@ object  ManifestHelpers {
             format = originalFormat,
             relationship = C2PARelationships.PARENT_OF
         )
-        
+
         val builder = ManifestBuilder()
             .title(title)
             .format(format)
@@ -113,18 +117,20 @@ object  ManifestHelpers {
             .addIngredient(ingredient)
 
         val timestamp = getCurrentTimestamp()
-        
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         builder.addAction(Action(
             action = C2PAActions.OPENED,
             whenTimestamp = timestamp,
-            softwareAgent = editingSoftware
+            softwareAgent = softwareAgent,
+            digitalSourceType = DigitalSourceTypes.COMPOSITE_CAPTURE
         ))
 
         editActions.forEach { actionType ->
             builder.addAction(Action(
                 action = actionType,
                 whenTimestamp = timestamp,
-                softwareAgent = editingSoftware
+                softwareAgent = softwareAgent
             ))
         }
 
@@ -139,6 +145,9 @@ object  ManifestHelpers {
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
+
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         val builder = ManifestBuilder()
             .title(title)
             .format(format)
@@ -146,7 +155,8 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.CREATED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = compositingSoftware
+                softwareAgent = softwareAgent,
+                digitalSourceType = DigitalSourceTypes.COMPOSITE_CAPTURE
             ))
 
         ingredients.forEach { ingredient ->
@@ -154,7 +164,8 @@ object  ManifestHelpers {
             builder.addAction(Action(
                 action = C2PAActions.PLACED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = compositingSoftware
+                softwareAgent = softwareAgent,
+                digitalSourceType = DigitalSourceTypes.COMPOSITE_CAPTURE
             ))
         }
 
@@ -168,6 +179,9 @@ object  ManifestHelpers {
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
+
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         val builder = ManifestBuilder()
             .title("Screenshot")
             .format(format)
@@ -176,7 +190,8 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.CREATED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = appName ?: "Screenshot"
+                softwareAgent = softwareAgent,
+                digitalSourceType = DigitalSourceTypes.SCREEN_CAPTURE
             ))
 
         val attestationBuilder = AttestationBuilder()
@@ -186,7 +201,7 @@ object  ManifestHelpers {
             addMetadata("capture_method", "screenshot")
             appName?.let { addMetadata("source_application", it) }
         }
-        
+
         attestationBuilder.buildForManifest(builder)
         return builder
     }
@@ -204,7 +219,10 @@ object  ManifestHelpers {
             format = originalFormat,
             relationship = C2PARelationships.PARENT_OF
         )
-        
+
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
+
         return ManifestBuilder()
             .title("Shared on $platform")
             .format(format)
@@ -213,13 +231,14 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.RECOMPRESSED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = platform,
-                reason = "Social media optimization"
+                softwareAgent = softwareAgent,
+                reason = "Social media optimization",
+                digitalSourceType = DigitalSourceTypes.HUMAN_EDITS
             ))
             .addAction(Action(
                 action = C2PAActions.PUBLISHED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = platform
+                softwareAgent = softwareAgent
             ))
     }
 
@@ -232,17 +251,20 @@ object  ManifestHelpers {
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
+
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         val ingredient = Ingredient(
             title = originalTitle,
             format = originalFormat,
             relationship = C2PARelationships.PARENT_OF
         )
-        
+
         val filterParameters = mapOf(
             "filter_name" to filterName,
             "filter_type" to "digital_filter"
         )
-        
+
         return ManifestBuilder()
             .title("$originalTitle (Filtered)")
             .format(format)
@@ -251,7 +273,7 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.FILTERED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = appName,
+                softwareAgent = softwareAgent,
                 parameters = filterParameters
             ))
     }
@@ -311,6 +333,9 @@ object  ManifestHelpers {
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
+
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         val builder = ManifestBuilder()
             .title(title)
             .format(format)
@@ -318,7 +343,7 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.CREATED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = deviceName
+                softwareAgent = softwareAgent
             ))
 
         val attestationBuilder = AttestationBuilder()
@@ -367,6 +392,9 @@ object  ManifestHelpers {
         claimGeneratorName: String = "Android C2PA SDK",
         claimGeneratorVersion: String = "1.0.0"
     ): ManifestBuilder {
+
+        var softwareAgent = SoftwareAgent(claimGeneratorName, android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         val builder = ManifestBuilder()
             .title(title)
             .format(format)
@@ -374,7 +402,8 @@ object  ManifestHelpers {
             .addAction(Action(
                 action = C2PAActions.CREATED,
                 whenTimestamp = getCurrentTimestamp(),
-                softwareAgent = platform
+                softwareAgent = softwareAgent,
+                digitalSourceType = DigitalSourceTypes.DIGITAL_CAPTURE
             ))
 
         val attestationBuilder = AttestationBuilder()

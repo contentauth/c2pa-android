@@ -100,3 +100,14 @@ object TimestampAuthorities {
     const val GLOBALSIGN = "http://timestamp.globalsign.com/tsa/r6advanced1"
     const val ENTRUST = "http://timestamp.entrust.net/TSS/RFC3161sha2TS"
 }
+
+//as defined https://cv.iptc.org/newscodes/digitalsourcetype/
+object DigitalSourceTypes {
+    const val DIGITAL_CAPTURE = "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+    const val COMPUTATIONAL_CAPTURE = "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture"
+    const val TRAINED_ALGORITHMIC_MEDIA = "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"
+    const val COMPOSITE_CAPTURE = "http://cv.iptc.org/newscodes/digitalsourcetype/compositeCapture"
+    const val SCREEN_CAPTURE = "http://cv.iptc.org/newscodes/digitalsourcetype/screenCapture"
+    const val HUMAN_EDITS = "http://cv.iptc.org/newscodes/digitalsourcetype/humanEdits"
+    const val AI_EDITS = "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia"
+}

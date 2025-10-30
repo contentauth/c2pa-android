@@ -31,10 +31,17 @@ data class Thumbnail(
 data class Action(
     val action: String,
     val whenTimestamp: String? = null,
-    val softwareAgent: String? = null,
+    val softwareAgent: SoftwareAgent? = null,
     val changes: List<ActionChange> = emptyList(),
     val reason: String? = null,
-    val parameters: Map<String, Any> = emptyMap()
+    val parameters: Map<String, Any> = emptyMap(),
+    val digitalSourceType: String? = null
+)
+
+data class SoftwareAgent(
+    val name: String,
+    val version: String,
+    val operatingSystem: String
 )
 
 data class ActionChange(
@@ -115,7 +122,7 @@ class ManifestBuilder {
 
         // Add claim version
         manifest.put("claim_version", 1)
-        
+
         // Add timestamp authority URL if present
         taUrl?.let { manifest.put("ta_url", it) }
 
@@ -157,11 +164,11 @@ class ManifestBuilder {
                         ingredient.provenance?.let { put("provenance", it) }
                         ingredient.hash?.let { put("hash", it) }
                         put("relationship", ingredient.relationship)
-                        
+
                         if (ingredient.validationStatus.isNotEmpty()) {
                             put("validationStatus", JSONArray(ingredient.validationStatus))
                         }
-                        
+
                         ingredient.thumbnail?.let { thumb ->
                             put("thumbnail", JSONObject().apply {
                                 put("format", thumb.format)
@@ -188,7 +195,7 @@ class ManifestBuilder {
                                 action.whenTimestamp?.let { put("when", it) }
                                 action.softwareAgent?.let { put("softwareAgent", it) }
                                 action.reason?.let { put("reason", it) }
-                                
+
                                 if (action.changes.isNotEmpty()) {
                                     put("changes", JSONArray().apply {
                                         action.changes.forEach { change ->
@@ -199,7 +206,7 @@ class ManifestBuilder {
                                         }
                                     })
                                 }
-                                
+
                                 if (action.parameters.isNotEmpty()) {
                                     val params = JSONObject()
                                     action.parameters.forEach { (key, value) ->

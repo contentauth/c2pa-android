@@ -18,7 +18,9 @@ import org.contentauth.c2pa.manifest.Action
 import org.contentauth.c2pa.manifest.AttestationBuilder
 import org.contentauth.c2pa.manifest.C2PAActions
 import org.contentauth.c2pa.manifest.C2PAFormats
+import org.contentauth.c2pa.manifest.DigitalSourceTypes
 import org.contentauth.c2pa.manifest.ManifestHelpers
+import org.contentauth.c2pa.manifest.SoftwareAgent
 import org.contentauth.c2pa.manifest.Thumbnail
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -123,12 +125,16 @@ abstract class ManifestBuilderTests : TestBase() {
     }
 
     private fun getTestManifest(title: String): String {
+
+
+        var softwareAgent = SoftwareAgent("Android Test Suite", android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         // Basic image manifest
         val manifestJson = ManifestHelpers.createBasicImageManifest(
             title = title,
             format = C2PAFormats.JPEG
         ).claimGenerator("Android Test Suite","1.0.0")
-            .addAction(Action(C2PAActions.OPENED, whenTimestamp = getCurrentTimestamp(),"Android Test Suite"))
+            .addAction(Action(C2PAActions.OPENED, whenTimestamp = getCurrentTimestamp(),softwareAgent))
             .addAssertion("c2pa.test","{\"test\": true}")
             .buildJson()
 
@@ -137,12 +143,14 @@ abstract class ManifestBuilderTests : TestBase() {
 
     private fun getTestManifestAdvanced(title: String): String {
 
+        var softwareAgent = SoftwareAgent("Android Test Suite", android.os.Build.VERSION.CODENAME, android.os.Build.VERSION.BASE_OS)
+
         // Basic image manifest
         val manifestBuilder = ManifestHelpers.createBasicImageManifest(
             title = title,
             format = C2PAFormats.JPEG
         ).claimGenerator("Android Test Suite","1.0.0")
-            .addAction(Action(C2PAActions.PLACED, whenTimestamp = getCurrentTimestamp(),"Android Test Suite"))
+            .addAction(Action(C2PAActions.PLACED, whenTimestamp = getCurrentTimestamp(),softwareAgent, digitalSourceType = DigitalSourceTypes.DIGITAL_CAPTURE))
             .addAssertion("c2pa.test","{\"test\": true}")
             .addThumbnail(Thumbnail(C2PAFormats.JPEG,"${title}_thumb.jpg"))
 
@@ -188,7 +196,7 @@ abstract class ManifestBuilderTests : TestBase() {
 
         attestationBuilder.buildForManifest(manifestBuilder)
 
-        manifestBuilder.addAction(Action(C2PAActions.RECOMPRESSED, getCurrentTimestamp(), "Photo Resizer"))
+        manifestBuilder.addAction(Action(C2PAActions.RECOMPRESSED, getCurrentTimestamp(), softwareAgent))
 
         val resultJson = manifestBuilder.buildJson()
 
