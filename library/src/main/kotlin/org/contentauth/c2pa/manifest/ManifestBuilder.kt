@@ -193,8 +193,18 @@ class ManifestBuilder {
                             put(JSONObject().apply {
                                 put("action", action.action)
                                 action.whenTimestamp?.let { put("when", it) }
+
                                 action.softwareAgent?.let { put("softwareAgent", it) }
+                                action.softwareAgent?.let {
+                                    put("softwareAgent", JSONObject().apply {
+                                        action.softwareAgent?.name.let { put("name", action.softwareAgent?.name) }
+                                        action.softwareAgent?.operatingSystem.let { put("operating_system", action.softwareAgent?.operatingSystem) }
+                                        action.softwareAgent?.version.let { put("version", action.softwareAgent?.version) }
+                                    })
+                                }
+
                                 action.reason?.let { put("reason", it) }
+                                action.digitalSourceType?.let { put("digitalSourceType", it) }
 
                                 if (action.changes.isNotEmpty()) {
                                     put("changes", JSONArray().apply {
