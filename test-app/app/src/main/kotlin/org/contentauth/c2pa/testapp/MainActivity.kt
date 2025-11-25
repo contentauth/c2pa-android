@@ -9,6 +9,7 @@ ANY KIND, either express or implied. See the LICENSE-MIT and LICENSE-APACHE
 files for the specific language governing permissions and limitations under
 each license.
 */
+
 package org.contentauth.c2pa.testapp
 
 import android.os.Bundle
