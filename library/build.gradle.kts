@@ -74,6 +74,15 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     testOptions { unitTests { isIncludeAndroidResources = true } }
+
+    packaging {
+        resources {
+            excludes += listOf(
+                "META-INF/AL2.0",
+                "META-INF/LGPL2.1"
+            )
+        }
+    }
 }
 
 // Set the base name for the AAR file
@@ -86,7 +95,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
-    implementation(libs.jna)
+    implementation(libs.jna) {
+        artifact {
+            type = "aar"
+        }
+    }
 
     // BouncyCastle for CSR generation
     implementation(libs.bcprov.jdk15to18)
