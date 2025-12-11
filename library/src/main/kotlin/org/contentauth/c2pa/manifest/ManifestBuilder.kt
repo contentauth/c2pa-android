@@ -50,7 +50,7 @@ data class ActionChange(
 )
 
 class ManifestBuilder {
-    private var claimGenerator: ClaimGenerator? = null
+    private var claimGenerators = mutableListOf<ClaimGenerator>()
     private var format: String? = null
     private var title: String? = null
     private var instanceId: String = UUID.randomUUID().toString()
@@ -63,7 +63,7 @@ class ManifestBuilder {
     private var taUrl: String? = null
 
     fun claimGenerator(name: String, version: String, icon: String? = null): ManifestBuilder {
-        this.claimGenerator = ClaimGenerator(name, version, icon)
+        claimGenerators.add(ClaimGenerator(name, version, icon))
         return this
     }
 
@@ -134,13 +134,17 @@ class ManifestBuilder {
         producer?.let { manifest.put("producer", it) }
 
         // Add claim generator info as array
-        claimGenerator?.let { generator ->
+        claimGenerators?.let { generators ->
             manifest.put("claim_generator_info", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("name", generator.name)
-                    put("version", generator.version)
-                    generator.icon?.let { put("icon", it) }
-                })
+                generators.forEach { generator ->
+                    put(
+                        JSONObject().apply {
+                            put("name", generator.name)
+                            put("version", generator.version)
+                            generator.icon?.let { put("icon", it) }
+                        }
+                    )
+                }
             })
         }
 
