@@ -107,11 +107,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
-    implementation(libs.jna) {
-        artifact {
-            type = "aar"
-        }
-    }
+    implementation(libs.jna)
 
     // BouncyCastle for CSR generation
     implementation(libs.bcprov.jdk15to18)
