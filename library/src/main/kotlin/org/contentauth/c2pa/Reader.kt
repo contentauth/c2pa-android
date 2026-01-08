@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -160,6 +160,8 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      *     .getJSONObject(0)
      *     .getString("author")
      * ```
+     *
+     * @see detailedJson
      */
     @Throws(C2PAError::class)
     fun json(): String {
@@ -168,6 +170,88 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to convert to JSON")
         }
         return json
+    }
+
+    /**
+     * Returns detailed manifest data as a JSON string.
+     *
+     * This method returns a more comprehensive JSON representation of the manifest that includes
+     * additional internal fields not present in the standard [json] output. Use this when you need
+     * access to all manifest details for debugging or advanced processing.
+     *
+     * @return A JSON string containing the detailed manifest data
+     * @throws C2PAError.Api if the manifest cannot be read or is invalid
+     *
+     * @sample
+     * ```kotlin
+     * val reader = Reader.fromStream("image/jpeg", stream)
+     *
+     * // Standard JSON for typical use
+     * val standardJSON = reader.json()
+     *
+     * // Detailed JSON for debugging or advanced analysis
+     * val detailedJSON = reader.detailedJson()
+     * ```
+     *
+     * @see json
+     */
+    @Throws(C2PAError::class)
+    fun detailedJson(): String {
+        val json = toDetailedJsonNative(ptr)
+        if (json == null) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to convert to detailed JSON")
+        }
+        return json
+    }
+
+    /**
+     * Returns the remote URL where the manifest is hosted, if available.
+     *
+     * This method returns the URL specified when the manifest was created with
+     * [Builder.setNoEmbed] and [Builder.setRemoteURL]. The URL indicates where the manifest can be
+     * retrieved separately from the media file.
+     *
+     * @return The remote URL string, or `null` if the manifest is embedded
+     *
+     * @sample
+     * ```kotlin
+     * val reader = Reader.fromStream("image/jpeg", stream)
+     * val remoteURL = reader.remoteUrl()
+     * if (remoteURL != null) {
+     *     println("Manifest hosted at: $remoteURL")
+     * } else {
+     *     println("Manifest is embedded")
+     * }
+     * ```
+     *
+     * @see isEmbedded
+     */
+    fun remoteUrl(): String? {
+        return remoteUrlNative(ptr)
+    }
+
+    /**
+     * Returns whether the manifest is embedded in the media file.
+     *
+     * This method checks if the manifest data is stored directly within the media file or if it is
+     * stored remotely and referenced via URL.
+     *
+     * @return `true` if the manifest is embedded, `false` if it is remote
+     *
+     * @sample
+     * ```kotlin
+     * val reader = Reader.fromStream("image/jpeg", stream)
+     * if (reader.isEmbedded()) {
+     *     println("Manifest is embedded in the file")
+     * } else {
+     *     println("Manifest is stored remotely at: ${reader.remoteUrl()}")
+     * }
+     * ```
+     *
+     * @see remoteUrl
+     */
+    fun isEmbedded(): Boolean {
+        return isEmbeddedNative(ptr)
     }
 
     /**
@@ -219,5 +303,8 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
 
     private external fun free(handle: Long)
     private external fun toJsonNative(handle: Long): String?
+    private external fun toDetailedJsonNative(handle: Long): String?
+    private external fun remoteUrlNative(handle: Long): String?
+    private external fun isEmbeddedNative(handle: Long): Boolean
     private external fun resourceToStreamNative(handle: Long, uri: String, streamHandle: Long): Long
 }

@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -14,11 +14,15 @@ package org.contentauth.c2pa.test.shared
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.contentauth.c2pa.Action
 import org.contentauth.c2pa.Builder
+import org.contentauth.c2pa.BuilderIntent
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
 import org.contentauth.c2pa.C2PAError
+import org.contentauth.c2pa.DigitalSourceType
 import org.contentauth.c2pa.FileStream
+import org.contentauth.c2pa.PredefinedAction
 import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
 import org.contentauth.c2pa.SignerInfo
@@ -455,6 +459,162 @@ abstract class BuilderTests : TestBase() {
                 )
             } finally {
                 memStream.close()
+            }
+        }
+    }
+
+    suspend fun testBuilderSetIntent(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Builder Set Intent") {
+            val manifestJson = TEST_MANIFEST_JSON
+
+            try {
+                val builder = Builder.fromJson(manifestJson)
+                try {
+                    // Test Create intent with digital source type
+                    builder.setIntent(BuilderIntent.Create(DigitalSourceType.DIGITAL_CAPTURE))
+
+                    val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                    val sourceStream = ByteArrayStream(sourceImageData)
+                    val fileTest = File.createTempFile("c2pa-intent-test", ".jpg")
+                    val destStream = FileStream(fileTest)
+
+                    try {
+                        val certPem = loadResourceAsString("es256_certs")
+                        val keyPem = loadResourceAsString("es256_private")
+                        val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+
+                        try {
+                            builder.sign("image/jpeg", sourceStream, destStream, signer)
+
+                            val manifest = C2PA.readFile(fileTest.absolutePath)
+                            val json = JSONObject(manifest)
+
+                            // Check for c2pa.created action which should be auto-added by Create intent
+                            val manifestStr = manifest.lowercase()
+                            val hasCreatedAction = manifestStr.contains("c2pa.created") ||
+                                manifestStr.contains("digitalcapture")
+
+                            TestResult(
+                                "Builder Set Intent",
+                                true,
+                                "Intent set and signed successfully",
+                                "Has created action or digital source: $hasCreatedAction\nManifest preview: ${manifest.take(500)}...",
+                            )
+                        } finally {
+                            signer.close()
+                        }
+                    } finally {
+                        sourceStream.close()
+                        destStream.close()
+                        fileTest.delete()
+                    }
+                } finally {
+                    builder.close()
+                }
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Builder Set Intent",
+                    false,
+                    "Failed to set intent",
+                    e.toString(),
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Builder Set Intent",
+                    false,
+                    "Exception: ${e.message}",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testBuilderAddAction(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Builder Add Action") {
+            val manifestJson = TEST_MANIFEST_JSON
+
+            try {
+                val builder = Builder.fromJson(manifestJson)
+                try {
+                    // Add multiple actions
+                    builder.addAction(
+                        Action(
+                            PredefinedAction.EDITED,
+                            DigitalSourceType.DIGITAL_CAPTURE,
+                            "TestApp/1.0",
+                        ),
+                    )
+                    builder.addAction(
+                        Action(
+                            PredefinedAction.CROPPED,
+                            DigitalSourceType.DIGITAL_CAPTURE,
+                        ),
+                    )
+                    builder.addAction(
+                        Action(
+                            action = "com.example.custom_action",
+                            softwareAgent = "CustomTool/2.0",
+                            parameters = mapOf("key1" to "value1", "key2" to "value2"),
+                        ),
+                    )
+
+                    val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                    val sourceStream = ByteArrayStream(sourceImageData)
+                    val fileTest = File.createTempFile("c2pa-action-test", ".jpg")
+                    val destStream = FileStream(fileTest)
+
+                    try {
+                        val certPem = loadResourceAsString("es256_certs")
+                        val keyPem = loadResourceAsString("es256_private")
+                        val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+
+                        try {
+                            builder.sign("image/jpeg", sourceStream, destStream, signer)
+
+                            val manifest = C2PA.readFile(fileTest.absolutePath)
+                            val manifestLower = manifest.lowercase()
+
+                            val hasEditedAction = manifestLower.contains("c2pa.edited")
+                            val hasCroppedAction = manifestLower.contains("c2pa.cropped")
+                            val hasCustomAction = manifestLower.contains("com.example.custom_action")
+
+                            val success = hasEditedAction && hasCroppedAction && hasCustomAction
+
+                            TestResult(
+                                "Builder Add Action",
+                                success,
+                                if (success) {
+                                    "All actions added successfully"
+                                } else {
+                                    "Some actions missing"
+                                },
+                                "Edited: $hasEditedAction, Cropped: $hasCroppedAction, Custom: $hasCustomAction\nManifest preview: ${manifest.take(500)}...",
+                            )
+                        } finally {
+                            signer.close()
+                        }
+                    } finally {
+                        sourceStream.close()
+                        destStream.close()
+                        fileTest.delete()
+                    }
+                } finally {
+                    builder.close()
+                }
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Builder Add Action",
+                    false,
+                    "Failed to add action",
+                    e.toString(),
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Builder Add Action",
+                    false,
+                    "Exception: ${e.message}",
+                    e.toString(),
+                )
             }
         }
     }

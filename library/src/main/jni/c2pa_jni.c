@@ -677,6 +677,56 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toJsonNative(JNIEnv *
     return result;
 }
 
+JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(JNIEnv *env, jobject obj, jlong readerPtr) {
+    if (readerPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
+                         "Reader is not initialized");
+        return NULL;
+    }
+    
+    struct C2paReader *reader = (struct C2paReader*)(uintptr_t)readerPtr;
+    char *json = c2pa_reader_detailed_json(reader);
+    
+    if (json == NULL) {
+        throw_c2pa_exception(env, "Failed to generate detailed JSON from reader");
+        return NULL;
+    }
+    
+    jstring result = cstring_to_jstring(env, json);
+    c2pa_string_free(json);
+    return result;
+}
+
+JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_remoteUrlNative(JNIEnv *env, jobject obj, jlong readerPtr) {
+    if (readerPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
+                         "Reader is not initialized");
+        return NULL;
+    }
+    
+    struct C2paReader *reader = (struct C2paReader*)(uintptr_t)readerPtr;
+    const char *url = c2pa_reader_remote_url(reader);
+    
+    if (url == NULL) {
+        return NULL;
+    }
+    
+    jstring result = cstring_to_jstring(env, url);
+    c2pa_string_free((char*)url);
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL Java_org_contentauth_c2pa_Reader_isEmbeddedNative(JNIEnv *env, jobject obj, jlong readerPtr) {
+    if (readerPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
+                         "Reader is not initialized");
+        return JNI_FALSE;
+    }
+    
+    struct C2paReader *reader = (struct C2paReader*)(uintptr_t)readerPtr;
+    return c2pa_reader_is_embedded(reader) ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring uri, jlong streamPtr) {
     if (readerPtr == 0 || uri == NULL || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
@@ -745,6 +795,34 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Builder_free(JNIEnv *env, jobje
     if (builderPtr != 0) {
         c2pa_builder_free((struct C2paBuilder*)(uintptr_t)builderPtr);
     }
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setIntentNative(JNIEnv *env, jobject obj, jlong builderPtr, jint intent, jint digitalSourceType) {
+    if (builderPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
+                         "Builder is not initialized");
+        return -1;
+    }
+    
+    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
+    return c2pa_builder_set_intent(builder, (enum C2paBuilderIntent)intent, (enum C2paDigitalSourceType)digitalSourceType);
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addActionNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring actionJson) {
+    if (builderPtr == 0 || actionJson == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
+                         "Builder and action JSON cannot be null");
+        return -1;
+    }
+    
+    const char *cactionJson = jstring_to_cstring(env, actionJson);
+    if (cactionJson == NULL) {
+        return -1;
+    }
+    
+    int result = c2pa_builder_add_action((struct C2paBuilder*)(uintptr_t)builderPtr, cactionJson);
+    release_cstring(env, actionJson, cactionJson);
+    return result;
 }
 
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Builder_setNoEmbedNative(JNIEnv *env, jobject obj, jlong builderPtr) {

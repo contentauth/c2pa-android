@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -681,6 +681,90 @@ abstract class CoreTests : TestBase() {
                     "Expected successes: 1, Got: ${successes.size}\n" +
                     errors.joinToString("\n"),
             )
+        }
+    }
+
+    suspend fun testReaderDetailedJson(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Reader Detailed JSON") {
+            val testImageData = loadResourceAsBytes("adobe_20220124_ci")
+            val stream = ByteArrayStream(testImageData)
+            try {
+                val reader = Reader.fromStream("image/jpeg", stream)
+                try {
+                    val standardJson = reader.json()
+                    val detailedJson = reader.detailedJson()
+
+                    // Both should be valid JSON
+                    val standardObj = JSONObject(standardJson)
+                    val detailedObj = JSONObject(detailedJson)
+
+                    // Detailed JSON should generally have at least as much content
+                    val success = standardObj.length() > 0 && detailedObj.length() > 0
+
+                    TestResult(
+                        "Reader Detailed JSON",
+                        success,
+                        if (success) {
+                            "Both JSON methods returned valid data"
+                        } else {
+                            "JSON parsing failed"
+                        },
+                        "Standard JSON keys: ${standardObj.length()}, Detailed JSON keys: ${detailedObj.length()}\n" +
+                            "Standard preview: ${standardJson.take(200)}...\n" +
+                            "Detailed preview: ${detailedJson.take(200)}...",
+                    )
+                } finally {
+                    reader.close()
+                }
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Reader Detailed JSON",
+                    false,
+                    "Failed to read manifest",
+                    e.toString(),
+                )
+            } finally {
+                stream.close()
+            }
+        }
+    }
+
+    suspend fun testReaderIsEmbedded(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Reader Is Embedded") {
+            val testImageData = loadResourceAsBytes("adobe_20220124_ci")
+            val stream = ByteArrayStream(testImageData)
+            try {
+                val reader = Reader.fromStream("image/jpeg", stream)
+                try {
+                    val isEmbedded = reader.isEmbedded()
+                    val remoteUrl = reader.remoteUrl()
+
+                    // For an embedded manifest, isEmbedded should be true and remoteUrl should be null
+                    val success = isEmbedded && remoteUrl == null
+
+                    TestResult(
+                        "Reader Is Embedded",
+                        success,
+                        if (success) {
+                            "Correctly identified embedded manifest"
+                        } else {
+                            "Unexpected embedded/remote state"
+                        },
+                        "isEmbedded: $isEmbedded, remoteUrl: $remoteUrl",
+                    )
+                } finally {
+                    reader.close()
+                }
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Reader Is Embedded",
+                    false,
+                    "Failed to read manifest",
+                    e.toString(),
+                )
+            } finally {
+                stream.close()
+            }
         }
     }
 }
