@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -173,6 +173,67 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         @JvmStatic private external fun nativeFromArchive(streamHandle: Long): Long
     }
 
+    /**
+     * Sets the builder intent, specifying what kind of manifest to create.
+     *
+     * The intent determines whether this is a new creation, an edit of existing content, or a
+     * metadata-only update. This affects what assertions are automatically added and what
+     * ingredients are required.
+     *
+     * @param intent The [BuilderIntent] specifying the type of manifest
+     * @throws C2PAError.Api if the intent cannot be set
+     *
+     * @sample
+     * ```kotlin
+     * val builder = Builder.fromJson(manifestJson)
+     * builder.setIntent(BuilderIntent.Create(DigitalSourceType.DIGITAL_CAPTURE))
+     * ```
+     *
+     * @sample
+     * ```kotlin
+     * val builder = Builder.fromJson(manifestJson)
+     * builder.setIntent(BuilderIntent.Edit)
+     * ```
+     *
+     * @see BuilderIntent
+     * @see DigitalSourceType
+     */
+    @Throws(C2PAError::class)
+    fun setIntent(intent: BuilderIntent) {
+        val result = setIntentNative(ptr, intent.toNativeIntent(), intent.toNativeDigitalSourceType())
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to set intent")
+        }
+    }
+
+    /**
+     * Adds an action to the manifest being constructed.
+     *
+     * Actions describe operations performed on the content, such as editing, cropping, or applying
+     * filters. Multiple actions can be added to a single manifest to document the complete editing
+     * history.
+     *
+     * @param action The [Action] to add to the manifest
+     * @throws C2PAError.Api if the action cannot be added
+     *
+     * @sample
+     * ```kotlin
+     * val builder = Builder.fromJson(manifestJson)
+     * builder.addAction(Action(PredefinedAction.EDITED, DigitalSourceType.DIGITAL_CAPTURE))
+     * builder.addAction(Action(PredefinedAction.CROPPED, DigitalSourceType.DIGITAL_CAPTURE))
+     * ```
+     *
+     * @see Action
+     * @see PredefinedAction
+     */
+    @Throws(C2PAError::class)
+    fun addAction(action: Action) {
+        val result = addActionNative(ptr, action.toJson())
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to add action")
+        }
+    }
+
     /** Set the no-embed flag */
     fun setNoEmbed() = setNoEmbedNative(ptr)
 
@@ -257,6 +318,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     }
 
     private external fun free(handle: Long)
+    private external fun setIntentNative(handle: Long, intent: Int, digitalSourceType: Int): Int
+    private external fun addActionNative(handle: Long, actionJson: String): Int
     private external fun setNoEmbedNative(handle: Long)
     private external fun setRemoteUrlNative(handle: Long, remoteUrl: String): Int
     private external fun addResourceNative(handle: Long, uri: String, streamHandle: Long): Int
