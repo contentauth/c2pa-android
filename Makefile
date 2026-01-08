@@ -1,6 +1,6 @@
 .PHONY: all clean setup library publish download-binaries tests coverage help test-app example-app \
         run-test-app run-example-app signing-server-start signing-server-stop signing-server-status \
-        signing-server-build tests-with-server lint format
+        signing-server-build tests-with-server lint format docs docs-clean
 
 # Default target
 all: library
@@ -83,6 +83,22 @@ format:
 		echo "Install with: brew install ktlint"; \
 		exit 1; \
 	fi
+
+# Generate API documentation using Dokka
+docs:
+	@echo "Generating API documentation..."
+	@./gradlew generateDocs
+	@echo ""
+	@echo "Documentation generation complete!"
+	@echo "Output: build/docs/index.html"
+	@echo "To view: open build/docs/index.html"
+
+# Clean generated documentation
+docs-clean:
+	@echo "Cleaning generated documentation..."
+	@rm -rf build/docs
+	@rm -f library/build/libs/c2pa-release-javadoc.jar
+	@echo "Documentation cleaned"
 
 # File to store the server PID
 SIGNING_SERVER_PID_FILE := .signing-server.pid
@@ -197,6 +213,10 @@ help:
 	@echo "Code Quality:"
 	@echo "  lint                  - Run Android lint checks"
 	@echo "  format                - Format all Kotlin files with ktlint"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  docs                  - Generate API documentation with Dokka"
+	@echo "  docs-clean            - Clean generated documentation"
 	@echo ""
 	@echo "Signing Server (for hardware signing tests):"
 	@echo "  signing-server-build  - Build the signing server"
