@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -54,6 +54,132 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             if (handle == 0L) null else Signer(handle)
         }
 
+        /**
+         * Creates a signer from JSON settings configuration.
+         *
+         * This method creates a signer from a JSON settings object that can include certificate
+         * paths, private keys, algorithm selection, and other configuration options. This is useful
+         * for loading signer configuration from external sources, configuration files, or for CAWG
+         * (Creator Assertions Working Group) signers.
+         *
+         * @param settingsJson A JSON string containing signer configuration.
+         * @return A new [Signer] instance configured according to the settings.
+         * @throws C2PAError if the settings are invalid or the signer cannot be created.
+         *
+         * Example JSON for a CAWG signer:
+         * ```json
+         * {
+         *     "version": 1,
+         *     "signer": {
+         *         "local": {
+         *             "alg": "es256",
+         *             "sign_cert": "-----BEGIN CERTIFICATE-----\n...",
+         *             "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+         *             "tsa_url": "http://timestamp.digicert.com"
+         *         }
+         *     },
+         *     "cawg_x509_signer": {
+         *         "local": {
+         *             "alg": "es256",
+         *             "sign_cert": "-----BEGIN CERTIFICATE-----\n...",
+         *             "private_key": "-----BEGIN PRIVATE KEY-----\n...",
+         *             "tsa_url": "http://timestamp.digicert.com",
+         *             "referenced_assertions": ["cawg.training-mining"]
+         *         }
+         *     }
+         * }
+         * ```
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun fromSettingsJson(settingsJson: String): Signer =
+            fromSettings(settingsJson, "json")
+
+        /**
+         * Creates a signer from TOML settings configuration.
+         *
+         * This method creates a signer from a TOML settings string. TOML format supports additional
+         * features like CAWG (Creator Assertions Working Group) X.509 signers that generate identity
+         * assertions.
+         *
+         * @param settingsToml A TOML string containing signer configuration.
+         * @return A new [Signer] instance configured according to the settings.
+         * @throws C2PAError if the settings are invalid or the signer cannot be created.
+         *
+         * Example TOML for a CAWG signer:
+         * ```toml
+         * version = 1
+         *
+         * [signer.local]
+         * alg = "es256"
+         * sign_cert = """-----BEGIN CERTIFICATE-----
+         * ...certificate chain...
+         * -----END CERTIFICATE-----
+         * """
+         * private_key = """-----BEGIN PRIVATE KEY-----
+         * ...private key...
+         * -----END PRIVATE KEY-----
+         * """
+         * tsa_url = "http://timestamp.digicert.com"
+         *
+         * [cawg_x509_signer.local]
+         * alg = "es256"
+         * sign_cert = """-----BEGIN CERTIFICATE-----
+         * ...certificate chain...
+         * -----END CERTIFICATE-----
+         * """
+         * private_key = """-----BEGIN PRIVATE KEY-----
+         * ...private key...
+         * -----END PRIVATE KEY-----
+         * """
+         * tsa_url = "http://timestamp.digicert.com"
+         * referenced_assertions = ["cawg.training-mining"]
+         * ```
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun fromSettingsToml(settingsToml: String): Signer =
+            fromSettings(settingsToml, "toml")
+
+        /**
+         * Creates a signer from settings configuration in the specified format.
+         *
+         * @param settings The settings string in the specified format.
+         * @param format The format of the settings string ("json" or "toml").
+         * @return A new [Signer] instance configured according to the settings.
+         * @throws C2PAError if the settings are invalid or the signer cannot be created.
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        private fun fromSettings(settings: String, format: String): Signer =
+            executeC2PAOperation("Failed to create signer from settings") {
+                val loadResult = C2PA.loadSettingsResult(settings, format)
+                if (loadResult != 0) {
+                    throw C2PAError.Api(C2PA.getError() ?: "Failed to load settings")
+                }
+                val handle = nativeFromSettings()
+                if (handle == 0L) null else Signer(handle)
+            }
+
+        /**
+         * Loads global C2PA settings without creating a signer.
+         *
+         * This method loads settings that will be used by subsequent signing operations. Use this
+         * to load CAWG identity assertion settings separately from the main signer.
+         *
+         * @param settings The settings string in the specified format.
+         * @param format The format of the settings string ("json" or "toml").
+         * @throws C2PAError if the settings are invalid.
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun loadSettings(settings: String, format: String) {
+            val result = C2PA.loadSettingsResult(settings, format)
+            if (result != 0) {
+                throw C2PAError.Api(C2PA.getError() ?: "Failed to load settings")
+            }
+        }
+
         /** Create signer with custom signing callback */
         @JvmStatic
         @Throws(C2PAError::class)
@@ -92,6 +218,9 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             tsaURL: String?,
             callback: SignCallback,
         ): Long
+
+        @JvmStatic
+        private external fun nativeFromSettings(): Long
     }
 
     /** Get the reserve size for this signer */

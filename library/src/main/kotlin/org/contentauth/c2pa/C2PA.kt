@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -39,6 +39,13 @@ object C2PA {
 
     @JvmStatic
     private external fun loadSettingsNative(settings: String, format: String): Int
+
+    /**
+     * Load settings from a string.
+     * Returns the result code from the native call (0 for success).
+     */
+    @JvmStatic
+    fun loadSettingsResult(settings: String, format: String): Int = loadSettingsNative(settings, format)
 
     /**
      * Load settings from a string

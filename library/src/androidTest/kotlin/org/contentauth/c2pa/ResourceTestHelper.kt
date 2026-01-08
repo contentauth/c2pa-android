@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -22,6 +22,8 @@ object ResourceTestHelper {
             TestBase.loadSharedResourceAsBytes("$resourceName.jpg")
                 ?: TestBase.loadSharedResourceAsBytes("$resourceName.pem")
                 ?: TestBase.loadSharedResourceAsBytes("$resourceName.key")
+                ?: TestBase.loadSharedResourceAsBytes("$resourceName.toml")
+                ?: TestBase.loadSharedResourceAsBytes("$resourceName.json")
 
         return sharedResource ?: throw IllegalArgumentException("Resource not found: $resourceName")
     }
@@ -31,6 +33,8 @@ object ResourceTestHelper {
             TestBase.loadSharedResourceAsString("$resourceName.jpg")
                 ?: TestBase.loadSharedResourceAsString("$resourceName.pem")
                 ?: TestBase.loadSharedResourceAsString("$resourceName.key")
+                ?: TestBase.loadSharedResourceAsString("$resourceName.toml")
+                ?: TestBase.loadSharedResourceAsString("$resourceName.json")
 
         return sharedResource ?: throw IllegalArgumentException("Resource not found: $resourceName")
     }

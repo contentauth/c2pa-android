@@ -1020,6 +1020,16 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmb
 }
 
 // Signer native methods
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromSettings(JNIEnv *env, jclass clazz) {
+    struct C2paSigner *signer = c2pa_signer_from_settings();
+    
+    if (signer == NULL) {
+        return 0;
+    }
+    
+    return (jlong)(uintptr_t)signer;
+}
+
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromInfo(JNIEnv *env, jclass clazz, jstring algorithm, jstring certificatePEM, jstring privateKeyPEM, jstring tsaURL) {
     if (algorithm == NULL || certificatePEM == NULL || privateKeyPEM == NULL) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 

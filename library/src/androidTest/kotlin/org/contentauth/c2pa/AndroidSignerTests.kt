@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -102,5 +102,17 @@ class AndroidSignerTests : SignerTests() {
     fun runTestStrongBoxAvailability() = runBlocking {
         val result = testStrongBoxAvailability()
         assertTrue(result.success, "StrongBox Availability test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSignerFromSettingsToml() = runBlocking {
+        val result = testSignerFromSettingsToml()
+        assertTrue(result.success, "Signer From Settings (TOML) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSignerFromSettingsJson() = runBlocking {
+        val result = testSignerFromSettingsJson()
+        assertTrue(result.success, "Signer From Settings (JSON) test failed: ${result.message}")
     }
 }
