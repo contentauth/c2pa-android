@@ -13,7 +13,6 @@ data class ClaimGenerator(
 data class Ingredient(
     val title: String? = null,
     val format: String,
-    val instanceId: String = UUID.randomUUID().toString(),
     val documentId: String? = null,
     val provenance: String? = null,
     val hash: String? = null,
@@ -53,7 +52,6 @@ class ManifestBuilder {
     private var claimGenerators = mutableListOf<ClaimGenerator>()
     private var format: String? = null
     private var title: String? = null
-    private var instanceId: String = UUID.randomUUID().toString()
     private var documentId: String? = null
     private val ingredients = mutableListOf<Ingredient>()
     private val actions = mutableListOf<Action>()
@@ -74,11 +72,6 @@ class ManifestBuilder {
 
     fun title(title: String): ManifestBuilder {
         this.title = title
-        return this
-    }
-
-    fun instanceId(instanceId: String): ManifestBuilder {
-        this.instanceId = instanceId
         return this
     }
 
@@ -129,7 +122,6 @@ class ManifestBuilder {
         // Add basic manifest fields
         format?.let { manifest.put("format", it) }
         title?.let { manifest.put("title", it) }
-        manifest.put("instanceID", instanceId)
         documentId?.let { manifest.put("documentID", it) }
         producer?.let { manifest.put("producer", it) }
 
@@ -163,7 +155,6 @@ class ManifestBuilder {
                     put(JSONObject().apply {
                         ingredient.title?.let { put("title", it) }
                         put("format", ingredient.format)
-                        put("instanceID", ingredient.instanceId)
                         ingredient.documentId?.let { put("documentID", it) }
                         ingredient.provenance?.let { put("provenance", it) }
                         ingredient.hash?.let { put("hash", it) }
