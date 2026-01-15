@@ -85,7 +85,7 @@ class ActionsAttestation : Attestation("c2pa.actions") {
         return this
     }
 
-    fun addPlacedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addPlacedAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.PLACED, whenTimestamp, softwareAgent))
         return this
     }
@@ -114,7 +114,6 @@ class ActionsAttestation : Attestation("c2pa.actions") {
                         action.whenTimestamp?.let { put("when", it) }
                         action.softwareAgent?.let { put("softwareAgent", it) }
                         action.reason?.let { put("reason", it) }
-
                         if (action.changes.isNotEmpty()) {
                             put("changes", JSONArray().apply {
                                 action.changes.forEach { change ->
@@ -125,7 +124,6 @@ class ActionsAttestation : Attestation("c2pa.actions") {
                                 }
                             })
                         }
-
                         if (action.parameters.isNotEmpty()) {
                             val params = JSONObject()
                             action.parameters.forEach { (key, value) ->

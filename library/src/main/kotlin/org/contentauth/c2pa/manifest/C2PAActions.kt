@@ -34,6 +34,7 @@ object C2PAAssertionTypes {
     const val ACTIONS = "c2pa.actions"
     const val ASSERTION_METADATA = "c2pa.assertion.metadata"
     const val THUMBNAIL = "c2pa.thumbnail"
+    const val DATA_HASH = "c2pa.data_hash"
     const val HASH_DATA = "c2pa.hash.data"
     const val BMFF_HASH = "c2pa.hash.bmff"
     const val EXIF = "stds.exif"
