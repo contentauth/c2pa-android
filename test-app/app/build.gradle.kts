@@ -58,7 +58,7 @@ android {
 dependencies {
     implementation(project(":library"))
     implementation(project(":test-shared"))
-    implementation("net.java.dev.jna:jna:5.17.0@aar")
+    //implementation("net.java.dev.jna:jna:5.17.0@aar")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
