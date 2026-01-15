@@ -32,6 +32,7 @@ object C2PAActions {
 object C2PAAssertionTypes {
     const val CREATIVE_WORK = "c2pa.creative_work"
     const val ACTIONS = "c2pa.actions"
+    const val ACTIONS_V2 = "c2pa.actions.v2"
     const val ASSERTION_METADATA = "c2pa.assertion.metadata"
     const val THUMBNAIL = "c2pa.thumbnail"
     const val DATA_HASH = "c2pa.data_hash"
