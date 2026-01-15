@@ -7,7 +7,8 @@ import java.util.*
 data class ClaimGenerator(
     val name: String,
     val version: String,
-    val icon: String? = null
+    val icon: String? = null,
+    val operatingSystem: String? = null
 )
 
 data class Ingredient(
@@ -49,7 +50,7 @@ data class ActionChange(
 )
 
 class ManifestBuilder {
-    private var claimGenerators = mutableListOf<ClaimGenerator>()
+    private var claimGenerator: ClaimGenerator? = null
     private var format: String? = null
     private var title: String? = null
     private var documentId: String? = null
@@ -60,8 +61,8 @@ class ManifestBuilder {
     private var producer: String? = null
     private var taUrl: String? = null
 
-    fun claimGenerator(name: String, version: String, icon: String? = null): ManifestBuilder {
-        claimGenerators.add(ClaimGenerator(name, version, icon))
+    fun claimGenerator(name: String, version: String, icon: String? = null, operatingSystem: String? = null): ManifestBuilder {
+        claimGenerator = ClaimGenerator(name, version, icon, operatingSystem)
         return this
     }
 
@@ -126,17 +127,12 @@ class ManifestBuilder {
         producer?.let { manifest.put("producer", it) }
 
         // Add claim generator info as array
-        claimGenerators?.let { generators ->
-            manifest.put("claim_generator_info", JSONArray().apply {
-                generators.forEach { generator ->
-                    put(
-                        JSONObject().apply {
-                            put("name", generator.name)
-                            put("version", generator.version)
-                            generator.icon?.let { put("icon", it) }
-                        }
-                    )
-                }
+        claimGenerator?.let { generator ->
+            manifest.put("claim_generator_info", JSONObject().apply {
+                put("name", generator.name)
+                put("version", generator.version)
+                generator.icon?.let { put("icon", it) }
+                generator.operatingSystem?.let { put("operating_system", it) }
             })
         }
 

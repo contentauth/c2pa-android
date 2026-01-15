@@ -68,21 +68,19 @@ object  ManifestHelpers {
                 digitalSourceType = DigitalSourceTypes.DIGITAL_CAPTURE
             ))
 
-        if (authorName != null || deviceName != null || location != null) {
-            val attestationBuilder = AttestationBuilder()
-            if (authorName != null) {
-                attestationBuilder.addCreativeWork {
-                    addAuthor(authorName)
-                    dateCreated(Date())
-                }
+        val attestationBuilder = AttestationBuilder()
+        authorName?.let {
+            attestationBuilder.addCreativeWork {
+                addAuthor(authorName)
+                dateCreated(Date())
             }
-            attestationBuilder.addAssertionMetadata {
-                dateTime(getCurrentTimestamp())
-                deviceName?.let { device(it) }
-                location?.let { location(it) }
-            }
-            attestationBuilder.buildForManifest(builder)
         }
+        attestationBuilder.addAssertionMetadata {
+            dateTime(getCurrentTimestamp())
+            deviceName?.let { device(it) }
+            location?.let { location(it) }
+        }
+        attestationBuilder.buildForManifest(builder)
 
         return builder
     }
