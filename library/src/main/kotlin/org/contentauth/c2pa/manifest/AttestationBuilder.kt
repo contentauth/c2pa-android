@@ -85,7 +85,7 @@ class ActionsAttestation : Attestation("c2pa.actions") {
         return this
     }
 
-    fun addPlacedAction(softwareAgent: String? = null, whenTimestamp: String? = null): ActionsAttestation {
+    fun addPlacedAction(softwareAgent: SoftwareAgent? = null, whenTimestamp: String? = null): ActionsAttestation {
         actionsList.add(Action(C2PAActions.PLACED, whenTimestamp, softwareAgent))
         return this
     }

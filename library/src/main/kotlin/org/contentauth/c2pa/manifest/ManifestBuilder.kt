@@ -169,7 +169,6 @@ class ManifestBuilder {
                             put("validationStatus", JSONArray(ingredient.validationStatus))
                         }
                         
->>>>>>> 520519d (add ManifestBuilder package for simple, compliant manifest JSON generation)
                         ingredient.thumbnail?.let { thumb ->
                             put("thumbnail", JSONObject().apply {
                                 put("format", thumb.format)

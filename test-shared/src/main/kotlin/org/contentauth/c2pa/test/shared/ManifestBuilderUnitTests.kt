@@ -61,7 +61,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
             val ingredient = Ingredient(
                 title = "Test Image",
                 format = C2PAFormats.JPEG,
-                instanceId = "test-instance-id",
                 documentId = "test-doc-id",
                 provenance = "test-provenance",
                 hash = "abc123",
@@ -72,7 +71,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
 
             val success = ingredient.title == "Test Image" &&
                     ingredient.format == C2PAFormats.JPEG &&
-                    ingredient.instanceId == "test-instance-id" &&
                     ingredient.documentId == "test-doc-id" &&
                     ingredient.provenance == "test-provenance" &&
                     ingredient.hash == "abc123" &&
@@ -94,7 +92,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
 
             val success = ingredient.title == null &&
                     ingredient.format == C2PAFormats.PNG &&
-                    ingredient.instanceId.isNotEmpty() && // UUID auto-generated
                     ingredient.documentId == null &&
                     ingredient.provenance == null &&
                     ingredient.hash == null &&
@@ -245,7 +242,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
                 .title("Test")
                 .format(C2PAFormats.JPEG)
                 .claimGenerator("App", "1.0")
-                .instanceId("test-id")
                 .documentId("doc-id")
                 .producer("Producer")
                 .timestampAuthorityUrl("http://ts.example.com")
@@ -338,41 +334,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
         }
     }
 
-    suspend fun testManifestBuilderInstanceId(): TestResult = withContext(Dispatchers.IO) {
-        runTest("ManifestBuilder instanceId") {
-            val customId = "custom-instance-id-12345"
-            val json = ManifestBuilder()
-                .instanceId(customId)
-                .build()
-
-            val success = json.getString("instanceID") == customId
-
-            TestResult(
-                "ManifestBuilder instanceId",
-                success,
-                if (success) "InstanceId set correctly" else "InstanceId not set correctly"
-            )
-        }
-    }
-
-    suspend fun testManifestBuilderAutoInstanceId(): TestResult = withContext(Dispatchers.IO) {
-        runTest("ManifestBuilder auto instanceId") {
-            val json = ManifestBuilder().build()
-
-            val instanceId = json.getString("instanceID")
-            // UUID format check: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-            val uuidPattern = Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")
-            val success = uuidPattern.matches(instanceId)
-
-            TestResult(
-                "ManifestBuilder auto instanceId",
-                success,
-                if (success) "Auto-generated UUID correct" else "Auto-generated UUID format incorrect",
-                "Generated: $instanceId"
-            )
-        }
-    }
-
     suspend fun testManifestBuilderDocumentId(): TestResult = withContext(Dispatchers.IO) {
         runTest("ManifestBuilder documentId") {
             val json = ManifestBuilder()
@@ -426,7 +387,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
             val ingredient = Ingredient(
                 title = "Source Image",
                 format = C2PAFormats.JPEG,
-                instanceId = "ingredient-id",
                 documentId = "ingredient-doc",
                 relationship = C2PARelationships.PARENT_OF
             )
@@ -988,7 +948,6 @@ abstract class ManifestBuilderUnitTests : TestBase() {
                 .title("Complete Test")
                 .format(C2PAFormats.JPEG)
                 .claimGenerator("TestApp", "1.0.0")
-                .instanceId("test-instance")
                 .documentId("test-document")
                 .producer("Test Producer")
                 .timestampAuthorityUrl("http://ts.example.com")
