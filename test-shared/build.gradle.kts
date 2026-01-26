@@ -60,6 +60,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
+    // Serialization for JSON tests
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+
     // OkHttp for web service tests
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
 }
