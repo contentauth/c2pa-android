@@ -79,15 +79,31 @@ ndk.version=29.0.13599879
 
 ### Android (Gradle)
 
-You can add C2PA Android as a Gradle dependency:
+The library is available from two sources: **JitPack** (recommended for simplicity) and **GitHub Packages**.
+
+#### Option 1: JitPack (Recommended)
+
+Add JitPack to your repositories and include the dependency:
 
 ```gradle
+// In your settings.gradle or root build.gradle
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
+
+// In your app's build.gradle
 dependencies {
-    implementation "org.contentauth:c2pa:1.0.0"
+    implementation 'com.github.contentauth:c2pa-android:1.0.0'
 }
 ```
 
-Make sure to add the GitHub Packages repository to your project:
+#### Option 2: GitHub Packages
+
+GitHub Packages requires authentication. Add the repository and dependency:
 
 ```gradle
 // In your root build.gradle
@@ -104,6 +120,11 @@ allprojects {
             }
         }
     }
+}
+
+// In your app's build.gradle
+dependencies {
+    implementation "org.contentauth:c2pa:1.0.0"
 }
 ```
 

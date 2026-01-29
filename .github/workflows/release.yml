@@ -29,6 +29,14 @@ jobs:
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
 
+    - name: Get previous tag
+      id: prev_tag
+      run: |
+        git fetch --tags
+        PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${{ github.event.inputs.version }}$" | head -n1)
+        echo "Previous tag: $PREV_TAG"
+        echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
     - name: Create tag
       run: |
         git tag ${{ github.event.inputs.version }}
@@ -85,15 +93,40 @@ jobs:
         body: |
           # C2PA Android Release ${{ github.event.inputs.version }}
 
-          ## Android Integration
+          ## Installation
 
-          ### Gradle dependency
+          The library is available from **JitPack** and **GitHub Packages**.
 
-          Add the AAR library to your Android project:
+          ### JitPack (Recommended)
 
-          1. Download the AAR file from this release
-          2. Place it in your app's `libs` directory
-          3. Add to your `build.gradle`:
+          ```gradle
+          // In settings.gradle
+          dependencyResolutionManagement {
+              repositories {
+                  maven { url 'https://jitpack.io' }
+              }
+          }
+
+          // In build.gradle
+          dependencies {
+              implementation 'com.github.contentauth:c2pa-android:${{ github.event.inputs.version }}'
+          }
+          ```
+
+          ### GitHub Packages
+
+          Requires authentication with a GitHub token:
+
+          ```gradle
+          // In build.gradle
+          dependencies {
+              implementation 'org.contentauth:c2pa:${{ github.event.inputs.version }}'
+          }
+          ```
+
+          ### Manual AAR
+
+          Download the AAR from this release and add to your project:
 
           ```gradle
           dependencies {
@@ -101,12 +134,12 @@ jobs:
           }
           ```
 
-          ### Usage
+          ## Documentation
 
           See the [README.md](https://github.com/${{ github.repository }}) for detailed integration instructions and API documentation.
 
           ## What's Changed
 
-          See the [commit history](https://github.com/${{ github.repository }}/compare/{{ previousTag }}...${{ github.event.inputs.version }}) for a full list of changes.
+          See the [commit history](https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ github.event.inputs.version }}) for a full list of changes.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
