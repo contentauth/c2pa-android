@@ -26,6 +26,8 @@ import org.contentauth.c2pa.SigningAlgorithm
 import org.contentauth.c2pa.StrongBoxSigner
 import org.contentauth.c2pa.derToRawSignature
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.KeyFactory
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
@@ -33,6 +35,28 @@ import java.util.Base64
 
 /** SignerTests - Signing and signer-related tests */
 abstract class SignerTests : TestBase() {
+
+    companion object {
+        // Use 10.0.2.2 for Android emulator to access host's localhost
+        private const val EMULATOR_SERVER_URL = "http://10.0.2.2:8080"
+
+        private fun getServerUrl(): String = System.getenv("SIGNING_SERVER_URL") ?: EMULATOR_SERVER_URL
+    }
+
+    private suspend fun isSigningServerAvailable(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("${getServerUrl()}/health")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.connectTimeout = 3000
+            connection.readTimeout = 3000
+            connection.requestMethod = "GET"
+            val responseCode = connection.responseCode
+            connection.disconnect()
+            responseCode == 200
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     suspend fun testSignerWithCallback(): TestResult = withContext(Dispatchers.IO) {
         runTest("Signer with Callback") {
@@ -489,9 +513,18 @@ abstract class SignerTests : TestBase() {
     }
 
     suspend fun testKeyStoreSignerIntegration(): TestResult = withContext(Dispatchers.IO) {
+        if (!isSigningServerAvailable()) {
+            return@withContext TestResult(
+                "KeyStore Signer Integration",
+                true,
+                "SKIPPED: Signing server not available",
+                status = TestStatus.SKIPPED,
+            )
+        }
+
         runTest("KeyStore Signer Integration") {
             val keyAlias = "test_keystore_signing_${System.currentTimeMillis()}"
-            val signingServerUrl = "http://10.0.2.2:8080"
+            val signingServerUrl = getServerUrl()
 
             try {
                 // Generate a hardware-backed key and get a real certificate from signing
@@ -576,6 +609,15 @@ abstract class SignerTests : TestBase() {
     }
 
     suspend fun testStrongBoxSignerIntegration(): TestResult = withContext(Dispatchers.IO) {
+        if (!isSigningServerAvailable()) {
+            return@withContext TestResult(
+                "StrongBox Signer Integration",
+                true,
+                "SKIPPED: Signing server not available",
+                status = TestStatus.SKIPPED,
+            )
+        }
+
         runTest("StrongBox Signer Integration") {
             val hasStrongBox = StrongBoxSigner.isAvailable(getContext())
 
@@ -589,7 +631,7 @@ abstract class SignerTests : TestBase() {
             }
 
             val keyTag = "test_strongbox_signing_${System.currentTimeMillis()}"
-            val signingServerUrl = "http://10.0.2.2:8080"
+            val signingServerUrl = getServerUrl()
 
             try {
                 // Generate a StrongBox-backed key and get a real certificate from signing
