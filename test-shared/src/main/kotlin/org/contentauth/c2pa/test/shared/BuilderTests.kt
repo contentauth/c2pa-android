@@ -14,6 +14,7 @@ package org.contentauth.c2pa.test.shared
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
 import org.contentauth.c2pa.Action
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.BuilderIntent
@@ -925,8 +926,8 @@ abstract class BuilderTests : TestBase() {
                     builder.addAction(
                         Action(
                             action = "com.example.custom_action",
-                            softwareAgent = "CustomTool/2.0",
-                            parameters = mapOf("key1" to "value1", "key2" to "value2"),
+                            softwareAgent = JsonPrimitive("CustomTool/2.0"),
+                            parameters = mapOf("key1" to JsonPrimitive("value1"), "key2" to JsonPrimitive("value2")),
                         ),
                     )
 

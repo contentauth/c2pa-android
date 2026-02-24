@@ -12,6 +12,7 @@ each license.
 
 package org.contentauth.c2pa.manifest
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -30,4 +31,6 @@ data class Time(
     val start: String? = null,
     val end: String? = null,
     val type: TimeType? = null,
+    @SerialName("end_inclusivity")
+    val endInclusivity: String? = null,
 )
