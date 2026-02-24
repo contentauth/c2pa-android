@@ -27,7 +27,19 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             loadC2PALibraries()
         }
 
-        /** Create signer from certificates and private key */
+        /**
+         * Creates a signer from PEM-encoded certificates and a private key.
+         *
+         * This is the simplest way to create a signer when you have the certificate chain
+         * and private key available as PEM strings.
+         *
+         * @param certsPEM The certificate chain in PEM format
+         * @param privateKeyPEM The private key in PEM format
+         * @param algorithm The [SigningAlgorithm] to use (e.g., ES256, ES384)
+         * @param tsaURL Optional timestamp authority URL for trusted timestamping
+         * @return A configured [Signer] instance
+         * @throws C2PAError.Api if the certificates or key are invalid
+         */
         @JvmStatic
         @Throws(C2PAError::class)
         fun fromKeys(
@@ -40,7 +52,13 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             return fromInfo(info)
         }
 
-        /** Create signer from SignerInfo */
+        /**
+         * Creates a signer from a [SignerInfo] configuration object.
+         *
+         * @param info The [SignerInfo] containing algorithm, certificates, key, and TSA URL
+         * @return A configured [Signer] instance
+         * @throws C2PAError.Api if the signer cannot be created from the provided info
+         */
         @JvmStatic
         @Throws(C2PAError::class)
         fun fromInfo(info: SignerInfo): Signer = executeC2PAOperation("Failed to create signer") {
@@ -180,7 +198,23 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             }
         }
 
-        /** Create signer with custom signing callback */
+        /**
+         * Creates a signer with a custom signing callback.
+         *
+         * Use this when the signing operation is handled externally, such as with
+         * hardware security modules (StrongBox, Android Keystore) or remote signing
+         * services. The callback receives raw bytes to sign and must return the signature.
+         *
+         * @param algorithm The [SigningAlgorithm] to use
+         * @param certificateChainPEM The certificate chain in PEM format
+         * @param tsaURL Optional timestamp authority URL for trusted timestamping
+         * @param sign Callback that receives data bytes and returns the signature bytes
+         * @return A configured [Signer] instance
+         * @throws C2PAError.Api if the callback signer cannot be created
+         *
+         * @see StrongBoxSigner
+         * @see KeyStoreSigner
+         */
         @JvmStatic
         @Throws(C2PAError::class)
         fun withCallback(

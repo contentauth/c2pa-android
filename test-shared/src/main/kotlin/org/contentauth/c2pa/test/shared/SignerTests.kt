@@ -63,87 +63,82 @@ abstract class SignerTests : TestBase() {
             val manifestJson = TEST_MANIFEST_JSON
 
             try {
-                val builder = Builder.fromJson(manifestJson)
+                val fileTest = File.createTempFile("c2pa-callback-signer", ".jpg")
                 try {
-                    val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
-                    val sourceStream = ByteArrayStream(sourceImageData)
-                    val fileTest = File.createTempFile("c2pa-callback-signer", ".jpg")
-                    val destStream = FileStream(fileTest)
+                    Builder.fromJson(manifestJson).use { builder ->
+                        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
 
-                    val certPem = loadResourceAsString("es256_certs")
-                    val keyPem = loadResourceAsString("es256_private")
+                        val certPem = loadResourceAsString("es256_certs")
+                        val keyPem = loadResourceAsString("es256_private")
 
-                    var signCallCount = 0
+                        var signCallCount = 0
 
-                    val callbackSigner =
                         Signer.withCallback(SigningAlgorithm.ES256, certPem, null) { data ->
                             signCallCount++
                             SigningHelper.signWithPEMKey(data, keyPem, "ES256")
-                        }
+                        }.use { callbackSigner ->
+                            ByteArrayStream(sourceImageData).use { sourceStream ->
+                                FileStream(fileTest).use { destStream ->
+                                    val reserveSize = callbackSigner.reserveSize()
+                                    val result =
+                                        builder.sign(
+                                            "image/jpeg",
+                                            sourceStream,
+                                            destStream,
+                                            callbackSigner,
+                                        )
+                                    val signSucceeded = result.size > 0
 
-                    try {
-                        val reserveSize = callbackSigner.reserveSize()
-                        val result =
-                            builder.sign(
-                                "image/jpeg",
-                                sourceStream,
-                                destStream,
-                                callbackSigner,
-                            )
-                        val signSucceeded = result.size > 0
+                                    val (manifest, signatureVerified) =
+                                        if (signSucceeded) {
+                                            try {
+                                                val readManifest =
+                                                    C2PA.readFile(fileTest.absolutePath)
+                                                val isValid =
+                                                    readManifest.isNotEmpty() &&
+                                                        readManifest.contains("manifests")
+                                                if (isValid) {
+                                                    Pair(readManifest, true)
+                                                } else {
+                                                    Pair(null, false)
+                                                }
+                                            } catch (e: Exception) {
+                                                Pair(null, false)
+                                            }
+                                        } else {
+                                            Pair(null, false)
+                                        }
 
-                        val (manifest, signatureVerified) =
-                            if (signSucceeded) {
-                                try {
-                                    val readManifest =
-                                        C2PA.readFile(fileTest.absolutePath)
-                                    val isValid =
-                                        readManifest.isNotEmpty() &&
-                                            readManifest.contains("manifests")
-                                    if (isValid) {
-                                        Pair(readManifest, true)
-                                    } else {
-                                        Pair(null, false)
-                                    }
-                                } catch (e: Exception) {
-                                    Pair(null, false)
+                                    val success =
+                                        signCallCount > 0 &&
+                                            reserveSize > 0 &&
+                                            signSucceeded &&
+                                            signatureVerified
+
+                                    TestResult(
+                                        "Signer with Callback",
+                                        success,
+                                        if (success) {
+                                            "Callback signer created and used successfully"
+                                        } else {
+                                            "Callback signer test failed"
+                                        },
+                                        buildString {
+                                            append("Callback invoked: $signCallCount time(s)\n")
+                                            append("Reserve size: $reserveSize bytes\n")
+                                            append("Signing succeeded: $signSucceeded\n")
+                                            append("Signature verified: $signatureVerified")
+                                            if (manifest != null && manifest.length > 100) {
+                                                append("\nManifest size: ${manifest.length} chars")
+                                            }
+                                        },
+                                    )
                                 }
-                            } else {
-                                Pair(null, false)
                             }
-
-                        val success =
-                            signCallCount > 0 &&
-                                reserveSize > 0 &&
-                                signSucceeded &&
-                                signatureVerified
-
-                        TestResult(
-                            "Signer with Callback",
-                            success,
-                            if (success) {
-                                "Callback signer created and used successfully"
-                            } else {
-                                "Callback signer test failed"
-                            },
-                            buildString {
-                                append("Callback invoked: $signCallCount time(s)\n")
-                                append("Reserve size: $reserveSize bytes\n")
-                                append("Signing succeeded: $signSucceeded\n")
-                                append("Signature verified: $signatureVerified")
-                                if (manifest != null && manifest.length > 100) {
-                                    append("\nManifest size: ${manifest.length} chars")
-                                }
-                            },
-                        )
-                    } finally {
-                        callbackSigner.close()
-                        sourceStream.close()
-                        destStream.close()
-                        fileTest.delete()
+                        }
                     }
                 } finally {
-                    builder.close()
+                    fileTest.delete()
                 }
             } catch (e: Exception) {
                 TestResult(
@@ -324,35 +319,35 @@ abstract class SignerTests : TestBase() {
             algorithms.forEach { alg ->
                 try {
                     val manifestJson = TEST_MANIFEST_JSON
-                    val builder = Builder.fromJson(manifestJson)
-
-                    val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
-                    val sourceStream = ByteArrayStream(sourceImageData)
                     val fileTest = File.createTempFile("c2pa-algorithm-$alg", ".jpg")
-                    val destStream = FileStream(fileTest)
-
-                    val certPem = loadResourceAsString("${alg}_certs")
-                    val keyPem = loadResourceAsString("${alg}_private")
-                    val algorithm =
-                        SigningAlgorithm.entries.find {
-                            it.name.equals(alg, ignoreCase = true)
-                        }
-                            ?: throw IllegalArgumentException(
-                                "Unsupported algorithm: $alg",
-                            )
-                    val signerInfo = SignerInfo(algorithm, certPem, keyPem)
-                    val signer = Signer.fromInfo(signerInfo)
 
                     try {
-                        builder.sign("image/jpeg", sourceStream, destStream, signer)
-                        val manifest = C2PA.readFile(fileTest.absolutePath)
-                        val ok = manifest.isNotEmpty() && manifest.contains("manifests")
-                        resultPerAlg.add("$alg:${if (ok) "ok" else "fail"}")
+                        Builder.fromJson(manifestJson).use { builder ->
+                            val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                            val certPem = loadResourceAsString("${alg}_certs")
+                            val keyPem = loadResourceAsString("${alg}_private")
+                            val algorithm =
+                                SigningAlgorithm.entries.find {
+                                    it.name.equals(alg, ignoreCase = true)
+                                }
+                                    ?: throw IllegalArgumentException(
+                                        "Unsupported algorithm: $alg",
+                                    )
+                            val signerInfo = SignerInfo(algorithm, certPem, keyPem)
+
+                            Signer.fromInfo(signerInfo).use { signer ->
+                                ByteArrayStream(sourceImageData).use { sourceStream ->
+                                    FileStream(fileTest).use { destStream ->
+                                        builder.sign("image/jpeg", sourceStream, destStream, signer)
+                                        val manifest = C2PA.readFile(fileTest.absolutePath)
+                                        val ok = manifest.isNotEmpty() && manifest.contains("manifests")
+                                        resultPerAlg.add("$alg:${if (ok) "ok" else "fail"}")
+                                    }
+                                }
+                            }
+                        }
                     } finally {
-                        signer.close()
-                        builder.close()
-                        sourceStream.close()
-                        destStream.close()
                         fileTest.delete()
                     }
                 } catch (e: Exception) {
@@ -375,9 +370,8 @@ abstract class SignerTests : TestBase() {
             val certPem = loadResourceAsString("es256_certs")
             val keyPem = loadResourceAsString("es256_private")
             val signerInfo = SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)
-            val signer = Signer.fromInfo(signerInfo)
 
-            try {
+            Signer.fromInfo(signerInfo).use { signer ->
                 val reserveSize = signer.reserveSize()
                 val success = reserveSize > 0
                 TestResult(
@@ -390,8 +384,6 @@ abstract class SignerTests : TestBase() {
                     },
                     "Reserve size: $reserveSize bytes",
                 )
-            } finally {
-                signer.close()
             }
         }
     }
@@ -529,77 +521,70 @@ abstract class SignerTests : TestBase() {
             try {
                 // Generate a hardware-backed key and get a real certificate from signing
                 // server
-                val signer =
-                    CertificateManager.createSignerWithCSR(
-                        keyAlias = keyAlias,
-                        certificateConfig =
-                        CertificateManager.CertificateConfig(
-                            commonName = "Test KeyStore Signer",
-                            organization = "C2PA Test Suite",
-                            organizationalUnit = "Testing",
-                            country = "US",
-                            state = "CA",
-                            locality = "San Francisco",
-                        ),
-                        signingServerUrl = signingServerUrl,
-                        requireStrongBox = false,
-                    )
-
-                try {
+                CertificateManager.createSignerWithCSR(
+                    keyAlias = keyAlias,
+                    certificateConfig =
+                    CertificateManager.CertificateConfig(
+                        commonName = "Test KeyStore Signer",
+                        organization = "C2PA Test Suite",
+                        organizationalUnit = "Testing",
+                        country = "US",
+                        state = "CA",
+                        locality = "San Francisco",
+                    ),
+                    signingServerUrl = signingServerUrl,
+                    requireStrongBox = false,
+                ).use { signer ->
                     // Test signing with the valid certificate
                     val manifestJson = TEST_MANIFEST_JSON
-                    val builder = Builder.fromJson(manifestJson)
 
-                    try {
+                    Builder.fromJson(manifestJson).use { builder ->
                         val sourceData = loadResourceAsBytes("pexels_asadphoto_457882")
-                        val sourceStream = ByteArrayStream(sourceData)
-                        val destStream = ByteArrayStream()
+                        ByteArrayStream(sourceData).use { sourceStream ->
+                            ByteArrayStream().use { destStream ->
+                                val result =
+                                    builder.sign("image/jpeg", sourceStream, destStream, signer)
 
-                        val result =
-                            builder.sign("image/jpeg", sourceStream, destStream, signer)
+                                val signSucceeded = result.size > 0
+                                val destData = destStream.getData()
+                                val hasData = destData.isNotEmpty()
 
-                        val signSucceeded = result.size > 0
-                        val destData = destStream.getData()
-                        val hasData = destData.isNotEmpty()
+                                // Verify the signed data has a manifest
+                                val manifestVerified =
+                                    if (hasData) {
+                                        try {
+                                            val tempFile =
+                                                File.createTempFile(
+                                                    "keystore_verify",
+                                                    ".jpg",
+                                                )
+                                            tempFile.writeBytes(destData)
+                                            val manifest = C2PA.readFile(tempFile.absolutePath)
+                                            tempFile.delete()
+                                            manifest.isNotEmpty() &&
+                                                manifest.contains("manifests")
+                                        } catch (e: Exception) {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
 
-                        // Verify the signed data has a manifest
-                        val manifestVerified =
-                            if (hasData) {
-                                try {
-                                    val tempFile =
-                                        File.createTempFile(
-                                            "keystore_verify",
-                                            ".jpg",
-                                        )
-                                    tempFile.writeBytes(destData)
-                                    val manifest = C2PA.readFile(tempFile.absolutePath)
-                                    tempFile.delete()
-                                    manifest.isNotEmpty() &&
-                                        manifest.contains("manifests")
-                                } catch (e: Exception) {
-                                    false
-                                }
-                            } else {
-                                false
+                                val success = signSucceeded && hasData && manifestVerified
+
+                                TestResult(
+                                    "KeyStore Signer Integration",
+                                    success,
+                                    if (success) {
+                                        "KeyStoreSigner successfully signed and verified with CSR certificate"
+                                    } else {
+                                        "KeyStoreSigner failed"
+                                    },
+                                    "Signed: $signSucceeded, Has data: $hasData (${destData.size} bytes), Verified: $manifestVerified",
+                                )
                             }
-
-                        val success = signSucceeded && hasData && manifestVerified
-
-                        TestResult(
-                            "KeyStore Signer Integration",
-                            success,
-                            if (success) {
-                                "KeyStoreSigner successfully signed and verified with CSR certificate"
-                            } else {
-                                "KeyStoreSigner failed"
-                            },
-                            "Signed: $signSucceeded, Has data: $hasData (${destData.size} bytes), Verified: $manifestVerified",
-                        )
-                    } finally {
-                        builder.close()
+                        }
                     }
-                } finally {
-                    signer.close()
                 }
             } finally {
                 // Cleanup
@@ -636,96 +621,89 @@ abstract class SignerTests : TestBase() {
             try {
                 // Generate a StrongBox-backed key and get a real certificate from signing
                 // server
-                val signer =
-                    CertificateManager.createStrongBoxSignerWithCSR(
-                        algorithm = SigningAlgorithm.ES256,
-                        strongBoxConfig =
-                        StrongBoxSigner.Config(
-                            keyTag = keyTag,
-                            requireUserAuthentication = false,
-                        ),
-                        certificateConfig =
-                        CertificateManager.CertificateConfig(
-                            commonName = "Test StrongBox Signer",
-                            organization = "C2PA Test Suite",
-                            organizationalUnit = "Testing",
-                            country = "US",
-                            state = "CA",
-                            locality = "San Francisco",
-                        ),
-                        signingServerUrl = signingServerUrl,
-                    )
-
-                try {
+                CertificateManager.createStrongBoxSignerWithCSR(
+                    algorithm = SigningAlgorithm.ES256,
+                    strongBoxConfig =
+                    StrongBoxSigner.Config(
+                        keyTag = keyTag,
+                        requireUserAuthentication = false,
+                    ),
+                    certificateConfig =
+                    CertificateManager.CertificateConfig(
+                        commonName = "Test StrongBox Signer",
+                        organization = "C2PA Test Suite",
+                        organizationalUnit = "Testing",
+                        country = "US",
+                        state = "CA",
+                        locality = "San Francisco",
+                    ),
+                    signingServerUrl = signingServerUrl,
+                ).use { signer ->
                     // Test signing with the valid certificate
                     val manifestJson = TEST_MANIFEST_JSON
-                    val builder = Builder.fromJson(manifestJson)
 
-                    try {
+                    Builder.fromJson(manifestJson).use { builder ->
                         val sourceData = loadResourceAsBytes("pexels_asadphoto_457882")
-                        val sourceStream = ByteArrayStream(sourceData)
-                        val destStream = ByteArrayStream()
+                        ByteArrayStream(sourceData).use { sourceStream ->
+                            ByteArrayStream().use { destStream ->
+                                val result =
+                                    builder.sign("image/jpeg", sourceStream, destStream, signer)
 
-                        val result =
-                            builder.sign("image/jpeg", sourceStream, destStream, signer)
+                                val signSucceeded = result.size > 0
+                                val destData = destStream.getData()
+                                val hasData = destData.isNotEmpty()
 
-                        val signSucceeded = result.size > 0
-                        val destData = destStream.getData()
-                        val hasData = destData.isNotEmpty()
+                                // Verify key is actually in StrongBox (API 31+)
+                                val isStrongBoxBacked =
+                                    if (android.os.Build.VERSION.SDK_INT >=
+                                        android.os.Build.VERSION_CODES.S
+                                    ) {
+                                        StrongBoxSigner.isKeyStrongBoxBacked(keyTag)
+                                    } else {
+                                        true // Can't verify on older versions, assume success
+                                    }
 
-                        // Verify key is actually in StrongBox (API 31+)
-                        val isStrongBoxBacked =
-                            if (android.os.Build.VERSION.SDK_INT >=
-                                android.os.Build.VERSION_CODES.S
-                            ) {
-                                StrongBoxSigner.isKeyStrongBoxBacked(keyTag)
-                            } else {
-                                true // Can't verify on older versions, assume success
+                                // Verify the signed data has a manifest
+                                val manifestVerified =
+                                    if (hasData) {
+                                        try {
+                                            val tempFile =
+                                                File.createTempFile(
+                                                    "strongbox_verify",
+                                                    ".jpg",
+                                                )
+                                            tempFile.writeBytes(destData)
+                                            val manifest = C2PA.readFile(tempFile.absolutePath)
+                                            tempFile.delete()
+                                            manifest.isNotEmpty() &&
+                                                manifest.contains("manifests")
+                                        } catch (e: Exception) {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
+
+                                val success =
+                                    signSucceeded &&
+                                        hasData &&
+                                        isStrongBoxBacked &&
+                                        manifestVerified
+
+                                TestResult(
+                                    "StrongBox Signer Integration",
+                                    success,
+                                    if (success) {
+                                        "StrongBoxSigner successfully signed and verified with CSR certificate"
+                                    } else {
+                                        "StrongBoxSigner failed"
+                                    },
+                                    "Signed: $signSucceeded, Has data: $hasData (${destData.size} bytes), " +
+                                        "StrongBox backed: $isStrongBoxBacked, Verified: $manifestVerified",
+                                )
                             }
-
-                        // Verify the signed data has a manifest
-                        val manifestVerified =
-                            if (hasData) {
-                                try {
-                                    val tempFile =
-                                        File.createTempFile(
-                                            "strongbox_verify",
-                                            ".jpg",
-                                        )
-                                    tempFile.writeBytes(destData)
-                                    val manifest = C2PA.readFile(tempFile.absolutePath)
-                                    tempFile.delete()
-                                    manifest.isNotEmpty() &&
-                                        manifest.contains("manifests")
-                                } catch (e: Exception) {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-
-                        val success =
-                            signSucceeded &&
-                                hasData &&
-                                isStrongBoxBacked &&
-                                manifestVerified
-
-                        TestResult(
-                            "StrongBox Signer Integration",
-                            success,
-                            if (success) {
-                                "StrongBoxSigner successfully signed and verified with CSR certificate"
-                            } else {
-                                "StrongBoxSigner failed"
-                            },
-                            "Signed: $signSucceeded, Has data: $hasData (${destData.size} bytes), " +
-                                "StrongBox backed: $isStrongBoxBacked, Verified: $manifestVerified",
-                        )
-                    } finally {
-                        builder.close()
+                        }
                     }
-                } finally {
-                    signer.close()
                 }
             } catch (e: Exception) {
                 TestResult(
@@ -821,77 +799,70 @@ abstract class SignerTests : TestBase() {
             try {
                 val settingsToml = loadSharedResourceAsString("test_settings_with_cawg_signing.toml")
                     ?: throw IllegalArgumentException("Resource not found: test_settings_with_cawg_signing.toml")
-                val signer = Signer.fromSettingsToml(settingsToml)
 
-                try {
+                Signer.fromSettingsToml(settingsToml).use { signer ->
                     // Load test image
                     val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
 
                     // Create manifest
                     val manifestJson = TEST_MANIFEST_JSON
-                    val builder = Builder.fromJson(manifestJson)
 
-                    try {
-                        val sourceStream = ByteArrayStream(sourceImageData)
+                    Builder.fromJson(manifestJson).use { builder ->
                         val destFile = File.createTempFile("cawg_toml_test", ".jpg")
-                        val destStream = FileStream(destFile)
-
                         try {
-                            val result = builder.sign(
-                                "image/jpeg",
-                                sourceStream,
-                                destStream,
-                                signer,
-                            )
+                            ByteArrayStream(sourceImageData).use { sourceStream ->
+                                FileStream(destFile).use { destStream ->
+                                    val result = builder.sign(
+                                        "image/jpeg",
+                                        sourceStream,
+                                        destStream,
+                                        signer,
+                                    )
 
-                            val signSucceeded = result.size > 0
+                                    val signSucceeded = result.size > 0
 
-                            // Verify the signed image contains a valid manifest
-                            val manifestResult = if (signSucceeded && destFile.exists()) {
-                                try {
-                                    val manifest = C2PA.readFile(destFile.absolutePath)
-                                    manifest
-                                } catch (e: Exception) {
-                                    ""
-                                }
-                            } else {
-                                ""
-                            }
-
-                            val hasManifest = manifestResult.isNotEmpty() &&
-                                manifestResult.contains("manifests")
-
-                            // Check for CAWG assertions in the manifest
-                            val hasCawgContent = manifestResult.lowercase().let {
-                                it.contains("cawg") || it.contains("training-mining")
-                            }
-
-                            val success = signSucceeded && hasManifest
-
-                            TestResult(
-                                "Signer From Settings (TOML)",
-                                success,
-                                if (success) {
-                                    if (hasCawgContent) {
-                                        "Signed with CAWG signer - found CAWG content"
+                                    // Verify the signed image contains a valid manifest
+                                    val manifestResult = if (signSucceeded && destFile.exists()) {
+                                        try {
+                                            val manifest = C2PA.readFile(destFile.absolutePath)
+                                            manifest
+                                        } catch (e: Exception) {
+                                            ""
+                                        }
                                     } else {
-                                        "Signed successfully (CAWG assertions may require SDK update)"
+                                        ""
                                     }
-                                } else {
-                                    "Signing failed"
-                                },
-                                "Signed: $signSucceeded, Has manifest: $hasManifest, Has CAWG: $hasCawgContent",
-                            )
+
+                                    val hasManifest = manifestResult.isNotEmpty() &&
+                                        manifestResult.contains("manifests")
+
+                                    // Check for CAWG assertions in the manifest
+                                    val hasCawgContent = manifestResult.lowercase().let {
+                                        it.contains("cawg") || it.contains("training-mining")
+                                    }
+
+                                    val success = signSucceeded && hasManifest
+
+                                    TestResult(
+                                        "Signer From Settings (TOML)",
+                                        success,
+                                        if (success) {
+                                            if (hasCawgContent) {
+                                                "Signed with CAWG signer - found CAWG content"
+                                            } else {
+                                                "Signed successfully (CAWG assertions may require SDK update)"
+                                            }
+                                        } else {
+                                            "Signing failed"
+                                        },
+                                        "Signed: $signSucceeded, Has manifest: $hasManifest, Has CAWG: $hasCawgContent",
+                                    )
+                                }
+                            }
                         } finally {
-                            sourceStream.close()
-                            destStream.close()
                             destFile.delete()
                         }
-                    } finally {
-                        builder.close()
                     }
-                } finally {
-                    signer.close()
                 }
             } catch (e: Exception) {
                 TestResult(
@@ -909,77 +880,70 @@ abstract class SignerTests : TestBase() {
             try {
                 val settingsJson = loadSharedResourceAsString("test_settings_with_cawg_signing.json")
                     ?: throw IllegalArgumentException("Resource not found: test_settings_with_cawg_signing.json")
-                val signer = Signer.fromSettingsJson(settingsJson)
 
-                try {
+                Signer.fromSettingsJson(settingsJson).use { signer ->
                     // Load test image
                     val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
 
                     // Create manifest
                     val manifestJson = TEST_MANIFEST_JSON
-                    val builder = Builder.fromJson(manifestJson)
 
-                    try {
-                        val sourceStream = ByteArrayStream(sourceImageData)
+                    Builder.fromJson(manifestJson).use { builder ->
                         val destFile = File.createTempFile("cawg_json_test", ".jpg")
-                        val destStream = FileStream(destFile)
-
                         try {
-                            val result = builder.sign(
-                                "image/jpeg",
-                                sourceStream,
-                                destStream,
-                                signer,
-                            )
+                            ByteArrayStream(sourceImageData).use { sourceStream ->
+                                FileStream(destFile).use { destStream ->
+                                    val result = builder.sign(
+                                        "image/jpeg",
+                                        sourceStream,
+                                        destStream,
+                                        signer,
+                                    )
 
-                            val signSucceeded = result.size > 0
+                                    val signSucceeded = result.size > 0
 
-                            // Verify the signed image contains a valid manifest
-                            val manifestResult = if (signSucceeded && destFile.exists()) {
-                                try {
-                                    val manifest = C2PA.readFile(destFile.absolutePath)
-                                    manifest
-                                } catch (e: Exception) {
-                                    ""
-                                }
-                            } else {
-                                ""
-                            }
-
-                            val hasManifest = manifestResult.isNotEmpty() &&
-                                manifestResult.contains("manifests")
-
-                            // Check for CAWG assertions in the manifest
-                            val hasCawgContent = manifestResult.lowercase().let {
-                                it.contains("cawg") || it.contains("training-mining")
-                            }
-
-                            val success = signSucceeded && hasManifest
-
-                            TestResult(
-                                "Signer From Settings (JSON)",
-                                success,
-                                if (success) {
-                                    if (hasCawgContent) {
-                                        "Signed with CAWG signer - found CAWG content"
+                                    // Verify the signed image contains a valid manifest
+                                    val manifestResult = if (signSucceeded && destFile.exists()) {
+                                        try {
+                                            val manifest = C2PA.readFile(destFile.absolutePath)
+                                            manifest
+                                        } catch (e: Exception) {
+                                            ""
+                                        }
                                     } else {
-                                        "Signed successfully (CAWG assertions may require SDK update)"
+                                        ""
                                     }
-                                } else {
-                                    "Signing failed"
-                                },
-                                "Signed: $signSucceeded, Has manifest: $hasManifest, Has CAWG: $hasCawgContent",
-                            )
+
+                                    val hasManifest = manifestResult.isNotEmpty() &&
+                                        manifestResult.contains("manifests")
+
+                                    // Check for CAWG assertions in the manifest
+                                    val hasCawgContent = manifestResult.lowercase().let {
+                                        it.contains("cawg") || it.contains("training-mining")
+                                    }
+
+                                    val success = signSucceeded && hasManifest
+
+                                    TestResult(
+                                        "Signer From Settings (JSON)",
+                                        success,
+                                        if (success) {
+                                            if (hasCawgContent) {
+                                                "Signed with CAWG signer - found CAWG content"
+                                            } else {
+                                                "Signed successfully (CAWG assertions may require SDK update)"
+                                            }
+                                        } else {
+                                            "Signing failed"
+                                        },
+                                        "Signed: $signSucceeded, Has manifest: $hasManifest, Has CAWG: $hasCawgContent",
+                                    )
+                                }
+                            }
                         } finally {
-                            sourceStream.close()
-                            destStream.close()
                             destFile.delete()
                         }
-                    } finally {
-                        builder.close()
                     }
-                } finally {
-                    signer.close()
                 }
             } catch (e: Exception) {
                 TestResult(

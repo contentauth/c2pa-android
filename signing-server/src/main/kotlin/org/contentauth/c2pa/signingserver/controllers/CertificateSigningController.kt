@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -38,7 +38,7 @@ class CertificateSigningController(private val certificateService: CertificateSi
             val response = certificateService.signCSR(csrRequest.csr)
 
             // Log the issuance
-            call.application.log.info("Issued certificate: ${response.certificate_id}")
+            call.application.log.info("Issued certificate: ${response.certificateId}")
 
             call.respond(HttpStatusCode.OK, response)
         } catch (e: Exception) {

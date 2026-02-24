@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -61,6 +61,7 @@ object KeyStoreSigner {
      * @param tsaURL Optional timestamp authority URL
      * @return A configured Signer instance
      */
+    @JvmStatic
     fun createSigner(
         algorithm: SigningAlgorithm,
         certificateChainPEM: String,
@@ -100,6 +101,7 @@ object KeyStoreSigner {
      * @param promptDescription Description for the biometric prompt
      * @return A configured Signer instance after successful authentication
      */
+    @JvmStatic
     suspend fun createBiometricSigner(
         activity: FragmentActivity,
         keyAlias: String,
@@ -162,6 +164,7 @@ object KeyStoreSigner {
      *
      * @return true if hardware-backed KeyStore is available
      */
+    @JvmStatic
     fun isHardwareBackedKeystoreAvailable(): Boolean = try {
         KeyStore.getInstance("AndroidKeyStore").load(null)
         true
@@ -175,10 +178,13 @@ object KeyStoreSigner {
      * @param keyAlias The alias of the key to check
      * @return true if the key is hardware-backed
      */
-    fun isKeyHardwareBacked(keyAlias: String): Boolean {
-        return try {
-            val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-            val privateKey = keyStore.getKey(keyAlias, null) as? PrivateKey ?: return false
+    @JvmStatic
+    fun isKeyHardwareBacked(keyAlias: String): Boolean = try {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val privateKey = keyStore.getKey(keyAlias, null) as? PrivateKey
+        if (privateKey == null) {
+            false
+        } else {
             val keyInfo =
                 KeyFactory.getInstance(privateKey.algorithm, "AndroidKeyStore")
                     .getKeySpec(privateKey, KeyInfo::class.java)
@@ -188,9 +194,9 @@ object KeyStoreSigner {
                 @Suppress("DEPRECATION")
                 keyInfo.isInsideSecureHardware
             }
-        } catch (e: Exception) {
-            false
         }
+    } catch (e: Exception) {
+        false
     }
 
     /**
@@ -199,6 +205,7 @@ object KeyStoreSigner {
      * @param keyAlias The alias of the key to check
      * @return true if the key exists
      */
+    @JvmStatic
     fun keyExists(keyAlias: String): Boolean = try {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
@@ -213,6 +220,7 @@ object KeyStoreSigner {
      * @param keyAlias The alias of the key to delete
      * @return true if the key was deleted or didn't exist
      */
+    @JvmStatic
     fun deleteKey(keyAlias: String): Boolean = try {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)

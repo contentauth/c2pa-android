@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -87,32 +87,33 @@ abstract class WebServiceTests : TestBase() {
                 val manifestJson = TEST_MANIFEST_JSON
 
                 // Sign the image
-                val builder = Builder.fromJson(manifestJson)
-                val sourceStream = DataStream(testImageData)
-                val destStream = ByteArrayStream()
+                Builder.fromJson(manifestJson).use { builder ->
+                    DataStream(testImageData).use { sourceStream ->
+                        ByteArrayStream().use { destStream ->
+                            builder.sign("image/jpeg", sourceStream, destStream, signer)
+                            val signedImageData = destStream.getData()
 
-                builder.sign("image/jpeg", sourceStream, destStream, signer)
-                val signedImageData = destStream.getData()
+                            // Verify the signed image has a manifest
+                            val manifest =
+                                Reader.fromStream(
+                                    format = "image/jpeg",
+                                    stream = ByteArrayStream(signedImageData),
+                                ).use { reader -> reader.json() }
+                            val hasManifest = manifest.isNotEmpty()
 
-                // Verify the signed image has a manifest
-                val manifest =
-                    Reader.fromStream(
-                        format = "image/jpeg",
-                        stream = ByteArrayStream(signedImageData),
-                    )
-                        .use { reader -> reader.json() }
-                val hasManifest = manifest.isNotEmpty()
-
-                TestResult(
-                    "Web Service Signing & Verification",
-                    hasManifest,
-                    if (hasManifest) {
-                        "Successfully signed via web service"
-                    } else {
-                        "Signed but no manifest found"
-                    },
-                    "Signed image size: ${signedImageData.size} bytes",
-                )
+                            TestResult(
+                                "Web Service Signing & Verification",
+                                hasManifest,
+                                if (hasManifest) {
+                                    "Successfully signed via web service"
+                                } else {
+                                    "Signed but no manifest found"
+                                },
+                                "Signed image size: ${signedImageData.size} bytes",
+                            )
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 TestResult(
                     "Web Service Signing & Verification",
@@ -156,32 +157,33 @@ abstract class WebServiceTests : TestBase() {
                                 }
                     """.trimIndent()
 
-                val builder = Builder.fromJson(manifestJson)
-                val sourceStream = DataStream(testImageData)
-                val destStream = ByteArrayStream()
+                Builder.fromJson(manifestJson).use { builder ->
+                    DataStream(testImageData).use { sourceStream ->
+                        ByteArrayStream().use { destStream ->
+                            builder.sign("image/jpeg", sourceStream, destStream, signer)
+                            val signedImageData = destStream.getData()
 
-                builder.sign("image/jpeg", sourceStream, destStream, signer)
-                val signedImageData = destStream.getData()
+                            // Verify the signed image has a manifest
+                            val manifest =
+                                Reader.fromStream(
+                                    format = "image/jpeg",
+                                    stream = ByteArrayStream(signedImageData),
+                                ).use { reader -> reader.json() }
+                            val hasManifest = manifest.isNotEmpty()
 
-                // Verify the signed image has a manifest
-                val manifest =
-                    Reader.fromStream(
-                        format = "image/jpeg",
-                        stream = ByteArrayStream(signedImageData),
-                    )
-                        .use { reader -> reader.json() }
-                val hasManifest = manifest.isNotEmpty()
-
-                TestResult(
-                    "Web Service Signer Creation",
-                    hasManifest,
-                    if (hasManifest) {
-                        "Successfully created and used web service signer"
-                    } else {
-                        "Signer created but manifest not found"
-                    },
-                    "Signed image size: ${signedImageData.size} bytes",
-                )
+                            TestResult(
+                                "Web Service Signer Creation",
+                                hasManifest,
+                                if (hasManifest) {
+                                    "Successfully created and used web service signer"
+                                } else {
+                                    "Signer created but manifest not found"
+                                },
+                                "Signed image size: ${signedImageData.size} bytes",
+                            )
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 TestResult(
                     "Web Service Signer Creation",

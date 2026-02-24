@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -74,6 +74,7 @@ object StrongBoxSigner {
      * @param tsaURL Optional timestamp authority URL
      * @return A configured Signer instance
      */
+    @JvmStatic
     fun createSigner(
         algorithm: SigningAlgorithm,
         certificateChainPEM: String,
@@ -105,6 +106,7 @@ object StrongBoxSigner {
      * @param config Configuration for the key
      * @return The created private key
      */
+    @JvmStatic
     fun createKey(config: Config): PrivateKey =
         KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").run {
             initialize(
@@ -135,6 +137,7 @@ object StrongBoxSigner {
      * @param keyTag The alias of the key to delete
      * @return true if the key was deleted or didn't exist
      */
+    @JvmStatic
     fun deleteKey(keyTag: String): Boolean = try {
         KeyStore.getInstance("AndroidKeyStore").apply {
             load(null)
@@ -151,6 +154,7 @@ object StrongBoxSigner {
      * @param keyTag The alias of the key to check
      * @return true if the key exists
      */
+    @JvmStatic
     fun keyExists(keyTag: String): Boolean = try {
         val keyStore = KeyStore.getInstance("AndroidKeyStore")
         keyStore.load(null)
@@ -165,6 +169,7 @@ object StrongBoxSigner {
      * @param context Android context
      * @return true if StrongBox is available
      */
+    @JvmStatic
     fun isAvailable(context: Context): Boolean =
         context.packageManager.hasSystemFeature("android.hardware.strongbox_keystore")
 
@@ -174,6 +179,7 @@ object StrongBoxSigner {
      * @param keyTag The alias of the key to check
      * @return true if the key is StrongBox-backed
      */
+    @JvmStatic
     @RequiresApi(Build.VERSION_CODES.S)
     fun isKeyStrongBoxBacked(keyTag: String): Boolean {
         return try {

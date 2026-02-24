@@ -285,11 +285,9 @@ abstract class CoreTests : TestBase() {
     suspend fun testResourceReading(): TestResult = withContext(Dispatchers.IO) {
         runTest("Resource Reading") {
             val testImageData = loadResourceAsBytes("adobe_20220124_ci")
-            val stream = ByteArrayStream(testImageData)
-            try {
+            ByteArrayStream(testImageData).use { stream ->
                 try {
-                    val reader = Reader.fromStream("image/jpeg", stream)
-                    try {
+                    Reader.fromStream("image/jpeg", stream).use { reader ->
                         val json = reader.json()
                         val manifestJson = JSONObject(json)
 
@@ -358,32 +356,31 @@ abstract class CoreTests : TestBase() {
                         }
 
                         if (resourceUri != null) {
-                            val resourceStream = ByteArrayStream()
-                            try {
-                                reader.resource(resourceUri, resourceStream)
-                                val resourceData = resourceStream.getData()
-                                val success = resourceData.isNotEmpty()
-                                TestResult(
-                                    "Resource Reading",
-                                    success,
-                                    if (success) {
-                                        "Successfully extracted $resourceType"
-                                    } else {
-                                        "Resource extraction failed"
-                                    },
-                                    "Type: $resourceType, URI: $resourceUri, Size: ${resourceData.size} bytes",
-                                )
-                            } catch (e: C2PAError) {
-                                TestResult(
-                                    "Resource Reading",
-                                    false,
-                                    "Failed to extract resource: ${e.message}",
-                                    "URI: $resourceUri, Available: ${availableResources.joinToString(
-                                        ", ",
-                                    )}",
-                                )
-                            } finally {
-                                resourceStream.close()
+                            ByteArrayStream().use { resourceStream ->
+                                try {
+                                    reader.resource(resourceUri, resourceStream)
+                                    val resourceData = resourceStream.getData()
+                                    val success = resourceData.isNotEmpty()
+                                    TestResult(
+                                        "Resource Reading",
+                                        success,
+                                        if (success) {
+                                            "Successfully extracted $resourceType"
+                                        } else {
+                                            "Resource extraction failed"
+                                        },
+                                        "Type: $resourceType, URI: $resourceUri, Size: ${resourceData.size} bytes",
+                                    )
+                                } catch (e: C2PAError) {
+                                    TestResult(
+                                        "Resource Reading",
+                                        false,
+                                        "Failed to extract resource: ${e.message}",
+                                        "URI: $resourceUri, Available: ${availableResources.joinToString(
+                                            ", ",
+                                        )}",
+                                    )
+                                }
                             }
                         } else {
                             TestResult(
@@ -393,8 +390,6 @@ abstract class CoreTests : TestBase() {
                                 "Checked thumbnails, ingredients, and assertions. JSON structure valid.",
                             )
                         }
-                    } finally {
-                        reader.close()
                     }
                 } catch (e: C2PAError) {
                     return@runTest TestResult(
@@ -404,8 +399,6 @@ abstract class CoreTests : TestBase() {
                         e.toString(),
                     )
                 }
-            } finally {
-                stream.close()
             }
         }
     }
@@ -587,34 +580,27 @@ abstract class CoreTests : TestBase() {
     suspend fun testReaderResourceErrorHandling(): TestResult = withContext(Dispatchers.IO) {
         runTest("Reader Resource Error Handling") {
             val testImageData = loadResourceAsBytes("adobe_20220124_ci")
-            val stream = ByteArrayStream(testImageData)
-            try {
-                val reader = Reader.fromStream("image/jpeg", stream)
-                try {
-                    val resourceStream = ByteArrayStream()
-                    try {
-                        reader.resource("non_existent_resource", resourceStream)
-                        TestResult(
-                            "Reader Resource Error Handling",
-                            false,
-                            "Should have thrown exception for missing resource",
-                            "No exception thrown",
-                        )
-                    } catch (e: C2PAError) {
-                        TestResult(
-                            "Reader Resource Error Handling",
-                            true,
-                            "Correctly threw exception for missing resource",
-                            "Error: ${e.message}",
-                        )
-                    } finally {
-                        resourceStream.close()
+            ByteArrayStream(testImageData).use { stream ->
+                Reader.fromStream("image/jpeg", stream).use { reader ->
+                    ByteArrayStream().use { resourceStream ->
+                        try {
+                            reader.resource("non_existent_resource", resourceStream)
+                            TestResult(
+                                "Reader Resource Error Handling",
+                                false,
+                                "Should have thrown exception for missing resource",
+                                "No exception thrown",
+                            )
+                        } catch (e: C2PAError) {
+                            TestResult(
+                                "Reader Resource Error Handling",
+                                true,
+                                "Correctly threw exception for missing resource",
+                                "Error: ${e.message}",
+                            )
+                        }
                     }
-                } finally {
-                    reader.close()
                 }
-            } finally {
-                stream.close()
             }
         }
     }
@@ -687,44 +673,40 @@ abstract class CoreTests : TestBase() {
     suspend fun testReaderDetailedJson(): TestResult = withContext(Dispatchers.IO) {
         runTest("Reader Detailed JSON") {
             val testImageData = loadResourceAsBytes("adobe_20220124_ci")
-            val stream = ByteArrayStream(testImageData)
-            try {
-                val reader = Reader.fromStream("image/jpeg", stream)
+            ByteArrayStream(testImageData).use { stream ->
                 try {
-                    val standardJson = reader.json()
-                    val detailedJson = reader.detailedJson()
+                    Reader.fromStream("image/jpeg", stream).use { reader ->
+                        val standardJson = reader.json()
+                        val detailedJson = reader.detailedJson()
 
-                    // Both should be valid JSON
-                    val standardObj = JSONObject(standardJson)
-                    val detailedObj = JSONObject(detailedJson)
+                        // Both should be valid JSON
+                        val standardObj = JSONObject(standardJson)
+                        val detailedObj = JSONObject(detailedJson)
 
-                    // Detailed JSON should generally have at least as much content
-                    val success = standardObj.length() > 0 && detailedObj.length() > 0
+                        // Detailed JSON should generally have at least as much content
+                        val success = standardObj.length() > 0 && detailedObj.length() > 0
 
+                        TestResult(
+                            "Reader Detailed JSON",
+                            success,
+                            if (success) {
+                                "Both JSON methods returned valid data"
+                            } else {
+                                "JSON parsing failed"
+                            },
+                            "Standard JSON keys: ${standardObj.length()}, Detailed JSON keys: ${detailedObj.length()}\n" +
+                                "Standard preview: ${standardJson.take(200)}...\n" +
+                                "Detailed preview: ${detailedJson.take(200)}...",
+                        )
+                    }
+                } catch (e: C2PAError) {
                     TestResult(
                         "Reader Detailed JSON",
-                        success,
-                        if (success) {
-                            "Both JSON methods returned valid data"
-                        } else {
-                            "JSON parsing failed"
-                        },
-                        "Standard JSON keys: ${standardObj.length()}, Detailed JSON keys: ${detailedObj.length()}\n" +
-                            "Standard preview: ${standardJson.take(200)}...\n" +
-                            "Detailed preview: ${detailedJson.take(200)}...",
+                        false,
+                        "Failed to read manifest",
+                        e.toString(),
                     )
-                } finally {
-                    reader.close()
                 }
-            } catch (e: C2PAError) {
-                TestResult(
-                    "Reader Detailed JSON",
-                    false,
-                    "Failed to read manifest",
-                    e.toString(),
-                )
-            } finally {
-                stream.close()
             }
         }
     }
@@ -732,38 +714,34 @@ abstract class CoreTests : TestBase() {
     suspend fun testReaderIsEmbedded(): TestResult = withContext(Dispatchers.IO) {
         runTest("Reader Is Embedded") {
             val testImageData = loadResourceAsBytes("adobe_20220124_ci")
-            val stream = ByteArrayStream(testImageData)
-            try {
-                val reader = Reader.fromStream("image/jpeg", stream)
+            ByteArrayStream(testImageData).use { stream ->
                 try {
-                    val isEmbedded = reader.isEmbedded()
-                    val remoteUrl = reader.remoteUrl()
+                    Reader.fromStream("image/jpeg", stream).use { reader ->
+                        val isEmbedded = reader.isEmbedded()
+                        val remoteUrl = reader.remoteUrl()
 
-                    // For an embedded manifest, isEmbedded should be true and remoteUrl should be null
-                    val success = isEmbedded && remoteUrl == null
+                        // For an embedded manifest, isEmbedded should be true and remoteUrl should be null
+                        val success = isEmbedded && remoteUrl == null
 
+                        TestResult(
+                            "Reader Is Embedded",
+                            success,
+                            if (success) {
+                                "Correctly identified embedded manifest"
+                            } else {
+                                "Unexpected embedded/remote state"
+                            },
+                            "isEmbedded: $isEmbedded, remoteUrl: $remoteUrl",
+                        )
+                    }
+                } catch (e: C2PAError) {
                     TestResult(
                         "Reader Is Embedded",
-                        success,
-                        if (success) {
-                            "Correctly identified embedded manifest"
-                        } else {
-                            "Unexpected embedded/remote state"
-                        },
-                        "isEmbedded: $isEmbedded, remoteUrl: $remoteUrl",
+                        false,
+                        "Failed to read manifest",
+                        e.toString(),
                     )
-                } finally {
-                    reader.close()
                 }
-            } catch (e: C2PAError) {
-                TestResult(
-                    "Reader Is Embedded",
-                    false,
-                    "Failed to read manifest",
-                    e.toString(),
-                )
-            } finally {
-                stream.close()
             }
         }
     }
