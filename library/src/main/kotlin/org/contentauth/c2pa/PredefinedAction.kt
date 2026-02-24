@@ -35,6 +35,9 @@ enum class PredefinedAction(val value: String) {
     /** Reduced or increased playback speed of a video or audio track. */
     CHANGED_SPEED("c2pa.changedSpeed"),
 
+    /** [DEPRECATED] Use ADJUSTED_COLOR instead. */
+    COLOR_ADJUSTMENTS("c2pa.color_adjustments"),
+
     /** The format of the asset was changed. */
     CONVERTED("c2pa.converted"),
 
@@ -70,6 +73,12 @@ enum class PredefinedAction(val value: String) {
     /** Changes to appearance with applied filters, styles, etc. */
     FILTERED("c2pa.filtered"),
 
+    /** Final production step where assets are prepared for distribution. */
+    MASTERED("c2pa.mastered"),
+
+    /** Multiple audio ingredients (stems, vocals, drums, etc.) are combined and transformed. */
+    MIXED("c2pa.mixed"),
+
     /** An existing asset was opened and is being set as the parentOf ingredient. */
     OPENED("c2pa.opened"),
 
@@ -85,6 +94,9 @@ enum class PredefinedAction(val value: String) {
     /** One or more assertions were redacted. */
     REDACTED("c2pa.redacted"),
 
+    /** Components from one or more ingredients were combined in a transformative way. */
+    REMIXED("c2pa.remixed"),
+
     /** A componentOf ingredient was removed. */
     REMOVED("c2pa.removed"),
 
@@ -97,6 +109,9 @@ enum class PredefinedAction(val value: String) {
 
     /** Changes to either content dimensions, its file size or both. */
     RESIZED("c2pa.resized"),
+
+    /** Dimensions were changed while maintaining aspect ratio. */
+    RESIZED_PROPORTIONAL("c2pa.resized.proportional"),
 
     /**
      * A conversion of one encoding to another, including resolution scaling, bitrate adjustment and
@@ -119,4 +134,51 @@ enum class PredefinedAction(val value: String) {
      * soft binding.
      */
     WATERMARKED("c2pa.watermarked"),
+
+    /**
+     * An invisible watermark was inserted that is cryptographically bound to this manifest
+     * (soft binding).
+     */
+    WATERMARKED_BOUND("c2pa.watermarked.bound"),
+
+    /**
+     * An invisible watermark was inserted that is NOT cryptographically bound to this manifest
+     * (e.g., for tracking purposes).
+     */
+    WATERMARKED_UNBOUND("c2pa.watermarked.unbound"),
+
+    // Font actions (from Font Content Specification)
+
+    /** Characters or character sets were added to the font. */
+    FONT_CHARACTERS_ADDED("font.charactersAdded"),
+
+    /** Characters or character sets were deleted from the font. */
+    FONT_CHARACTERS_DELETED("font.charactersDeleted"),
+
+    /** Characters were both added and deleted from the font. */
+    FONT_CHARACTERS_MODIFIED("font.charactersModified"),
+
+    /** A font was instantiated from a variable font. */
+    FONT_CREATED_FROM_VARIABLE_FONT("font.createdFromVariableFont"),
+
+    /** The font was edited (catch-all). */
+    FONT_EDITED("font.edited"),
+
+    /** Hinting was applied to the font. */
+    FONT_HINTED("font.hinted"),
+
+    /** A combination of antecedent fonts. */
+    FONT_MERGED("font.merged"),
+
+    /** An OpenType feature was added. */
+    FONT_OPEN_TYPE_FEATURE_ADDED("font.openTypeFeatureAdded"),
+
+    /** An OpenType feature was modified. */
+    FONT_OPEN_TYPE_FEATURE_MODIFIED("font.openTypeFeatureModified"),
+
+    /** An OpenType feature was removed. */
+    FONT_OPEN_TYPE_FEATURE_REMOVED("font.openTypeFeatureRemoved"),
+
+    /** The font was stripped to a sub-group of characters. */
+    FONT_SUBSET("font.subset"),
 }

@@ -50,6 +50,9 @@ sealed class AssertionDefinition {
     data class Actions(
         val actions: List<ActionAssertion>,
         val metadata: Metadata? = null,
+        val templates: List<ActionAssertion>? = null,
+        val softwareAgents: List<ClaimGeneratorInfo>? = null,
+        val allActionsIncluded: Boolean? = null,
     ) : AssertionDefinition()
 
     /**
@@ -89,6 +92,18 @@ sealed class AssertionDefinition {
     ) : AssertionDefinition()
 
     /**
+     * A CAWG AI training and data mining assertion.
+     *
+     * This follows the CAWG AI Training and Data Mining specification format,
+     * which is distinct from the C2PA training-mining assertion.
+     *
+     * @property entries The CAWG training/mining permission entries.
+     */
+    data class CawgTrainingMining(
+        val entries: List<CawgTrainingMiningEntry>,
+    ) : AssertionDefinition()
+
+    /**
      * A custom assertion with an arbitrary label and data.
      *
      * @property label The assertion label.
@@ -98,6 +113,23 @@ sealed class AssertionDefinition {
         val label: String,
         val data: JsonElement,
     ) : AssertionDefinition()
+
+    /**
+     * Returns the base label for this assertion type.
+     *
+     * The base label is used by the SDK to determine whether this assertion should be
+     * placed in `created_assertions` or `gathered_assertions` based on the
+     * `builder.created_assertion_labels` setting.
+     */
+    fun baseLabel(): String = when (this) {
+        is Actions -> "c2pa.actions"
+        is CreativeWork -> "stds.schema-org.CreativeWork"
+        is Exif -> "stds.exif"
+        is IptcPhotoMetadata -> "stds.iptc.photo-metadata"
+        is TrainingMining -> "c2pa.training-mining"
+        is CawgTrainingMining -> "cawg.training-mining"
+        is Custom -> label
+    }
 
     companion object {
         /**
@@ -124,9 +156,14 @@ sealed class AssertionDefinition {
         fun exif(data: Map<String, JsonElement>) = Exif(data)
 
         /**
-         * Creates a training/mining assertion.
+         * Creates a training/mining assertion (C2PA format).
          */
         fun trainingMining(entries: List<TrainingMiningEntry>) = TrainingMining(entries)
+
+        /**
+         * Creates a CAWG AI training and data mining assertion.
+         */
+        fun cawgTrainingMining(entries: List<CawgTrainingMiningEntry>) = CawgTrainingMining(entries)
 
         /**
          * Creates a custom assertion.
@@ -136,7 +173,7 @@ sealed class AssertionDefinition {
 }
 
 /**
- * Represents a training/mining permission entry.
+ * Represents a training/mining permission entry (C2PA format).
  *
  * @property use The type of use (e.g., "allowed", "notAllowed", "constrained").
  * @property constraint Optional constraint URL or description.
@@ -146,6 +183,28 @@ data class TrainingMiningEntry(
     val use: String,
     @SerialName("constraint_info")
     val constraintInfo: String? = null,
+)
+
+/**
+ * Represents a CAWG AI training and data mining permission entry.
+ *
+ * This follows the CAWG specification format which has additional fields
+ * compared to the C2PA training-mining assertion.
+ *
+ * @property use The use permission: "allowed", "notAllowed", or "constrained".
+ * @property constraintInfo Optional constraint information URI.
+ * @property aiModelLearningType Optional learning type: "dataAggregation" or "machineLearning".
+ * @property aiMiningType Optional mining type: "dataAggregation" or "other".
+ */
+@Serializable
+data class CawgTrainingMiningEntry(
+    val use: String,
+    @SerialName("constraint_info")
+    val constraintInfo: String? = null,
+    @SerialName("ai_model_learning_type")
+    val aiModelLearningType: String? = null,
+    @SerialName("ai_mining_type")
+    val aiMiningType: String? = null,
 )
 
 /**
@@ -161,10 +220,13 @@ internal object AssertionDefinitionSerializer : KSerializer<AssertionDefinition>
 
         val jsonObject = when (value) {
             is AssertionDefinition.Actions -> buildJsonObject {
-                put("label", StandardAssertionLabel.ACTIONS.serialName())
+                put("label", StandardAssertionLabel.ACTIONS_V2.serialName())
                 put("data", buildJsonObject {
                     put("actions", jsonEncoder.json.encodeToJsonElement(value.actions))
                     value.metadata?.let { put("metadata", jsonEncoder.json.encodeToJsonElement(it)) }
+                    value.templates?.let { put("templates", jsonEncoder.json.encodeToJsonElement(it)) }
+                    value.softwareAgents?.let { put("softwareAgents", jsonEncoder.json.encodeToJsonElement(it)) }
+                    value.allActionsIncluded?.let { put("allActionsIncluded", it) }
                 })
             }
             is AssertionDefinition.CreativeWork -> buildJsonObject {
@@ -181,6 +243,12 @@ internal object AssertionDefinitionSerializer : KSerializer<AssertionDefinition>
             }
             is AssertionDefinition.TrainingMining -> buildJsonObject {
                 put("label", StandardAssertionLabel.TRAINING_MINING.serialName())
+                put("data", buildJsonObject {
+                    put("entries", jsonEncoder.json.encodeToJsonElement(value.entries))
+                })
+            }
+            is AssertionDefinition.CawgTrainingMining -> buildJsonObject {
+                put("label", StandardAssertionLabel.CAWG_AI_TRAINING.serialName())
                 put("data", buildJsonObject {
                     put("entries", jsonEncoder.json.encodeToJsonElement(value.entries))
                 })
@@ -215,7 +283,22 @@ internal object AssertionDefinitionSerializer : KSerializer<AssertionDefinition>
                 val metadata = data["metadata"]?.let {
                     jsonDecoder.json.decodeFromJsonElement(Metadata.serializer(), it)
                 }
-                AssertionDefinition.Actions(actions, metadata)
+                val templates = data["templates"]?.let {
+                    jsonDecoder.json.decodeFromJsonElement(
+                        kotlinx.serialization.builtins.ListSerializer(ActionAssertion.serializer()),
+                        it,
+                    )
+                }
+                val softwareAgents = data["softwareAgents"]?.let {
+                    jsonDecoder.json.decodeFromJsonElement(
+                        kotlinx.serialization.builtins.ListSerializer(ClaimGeneratorInfo.serializer()),
+                        it,
+                    )
+                }
+                val allActionsIncluded = data["allActionsIncluded"]?.jsonPrimitive?.let {
+                    it.content.toBooleanStrictOrNull()
+                }
+                AssertionDefinition.Actions(actions, metadata, templates, softwareAgents, allActionsIncluded)
             }
             StandardAssertionLabel.CREATIVE_WORK.serialName() -> {
                 AssertionDefinition.CreativeWork(data.toMap())
@@ -235,30 +318,18 @@ internal object AssertionDefinitionSerializer : KSerializer<AssertionDefinition>
                 } ?: emptyList()
                 AssertionDefinition.TrainingMining(entries)
             }
+            StandardAssertionLabel.CAWG_AI_TRAINING.serialName() -> {
+                val entries = data["entries"]?.let {
+                    jsonDecoder.json.decodeFromJsonElement(
+                        kotlinx.serialization.builtins.ListSerializer(CawgTrainingMiningEntry.serializer()),
+                        it,
+                    )
+                } ?: emptyList()
+                AssertionDefinition.CawgTrainingMining(entries)
+            }
             else -> {
                 AssertionDefinition.Custom(label, JsonObject(data))
             }
         }
     }
-}
-
-private fun StandardAssertionLabel.serialName(): String = when (this) {
-    StandardAssertionLabel.ACTIONS -> "c2pa.actions"
-    StandardAssertionLabel.ACTIONS_V2 -> "c2pa.actions.v2"
-    StandardAssertionLabel.HASH_DATA -> "c2pa.hash.data"
-    StandardAssertionLabel.HASH_BOXES -> "c2pa.hash.boxes"
-    StandardAssertionLabel.HASH_BMFF_V2 -> "c2pa.hash.bmff.v2"
-    StandardAssertionLabel.HASH_COLLECTION -> "c2pa.hash.collection"
-    StandardAssertionLabel.SOFT_BINDING -> "c2pa.soft-binding"
-    StandardAssertionLabel.CLOUD_DATA -> "c2pa.cloud-data"
-    StandardAssertionLabel.THUMBNAIL_CLAIM -> "c2pa.thumbnail.claim"
-    StandardAssertionLabel.THUMBNAIL_INGREDIENT -> "c2pa.thumbnail.ingredient"
-    StandardAssertionLabel.DEPTHMAP -> "c2pa.depthmap"
-    StandardAssertionLabel.TRAINING_MINING -> "c2pa.training-mining"
-    StandardAssertionLabel.EXIF -> "stds.exif"
-    StandardAssertionLabel.CREATIVE_WORK -> "stds.schema-org.CreativeWork"
-    StandardAssertionLabel.IPTC_PHOTO_METADATA -> "stds.iptc.photo-metadata"
-    StandardAssertionLabel.ISO_LOCATION -> "stds.iso.location.v1"
-    StandardAssertionLabel.CAWG_IDENTITY -> "cawg.identity"
-    StandardAssertionLabel.CAWG_AI_TRAINING -> "cawg.ai_training_and_data_mining"
 }

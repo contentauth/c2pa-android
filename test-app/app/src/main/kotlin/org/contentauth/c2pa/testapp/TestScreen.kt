@@ -241,6 +241,11 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(manifestTests.testCreatedFactory())
     results.add(manifestTests.testAllValidationStatusCodes())
     results.add(manifestTests.testAllDigitalSourceTypes())
+    results.add(manifestTests.testAssertionsWithBuilder())
+    results.add(manifestTests.testCustomGatheredAssertionWithBuilder())
+    results.add(manifestTests.testCustomAssertionLabelValidation())
+    results.add(manifestTests.testImageRegionTypeToTypeString())
+    results.add(manifestTests.testStandardAssertionLabelSerialNames())
 
     // Settings Validator Tests
     val settingsValidatorTests = AppSettingsValidatorTests(context)

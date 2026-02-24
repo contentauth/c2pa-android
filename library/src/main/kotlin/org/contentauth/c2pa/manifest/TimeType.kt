@@ -25,4 +25,8 @@ enum class TimeType {
     /** Normal Play Time format (npt). */
     @SerialName("npt")
     NPT,
+
+    /** Wall clock time format using RFC 3339 timestamps. */
+    @SerialName("wallClock")
+    WALL_CLOCK,
 }

@@ -49,27 +49,33 @@ data class Ingredient(
     val relationship: Relationship? = null,
     val data: ResourceRef? = null,
     val thumbnail: ResourceRef? = null,
-    @SerialName("manifest_data")
+    @SerialName("manifestData")
     val manifestData: ResourceRef? = null,
-    @SerialName("active_manifest")
+    @SerialName("activeManifest")
     val activeManifest: String? = null,
     val hash: String? = null,
     val description: String? = null,
     val label: String? = null,
-    @SerialName("data_types")
+    @SerialName("dataTypes")
     val dataTypes: List<AssetType>? = null,
-    @SerialName("validation_status")
+    @SerialName("validationStatus")
     val validationStatus: List<ValidationStatus>? = null,
-    @SerialName("validation_results")
+    @SerialName("validationResults")
     val validationResults: ValidationResults? = null,
     val metadata: Metadata? = null,
-    @SerialName("document_id")
+    @SerialName("documentId")
     val documentId: String? = null,
-    @SerialName("instance_id")
+    @SerialName("instanceId")
     val instanceId: String? = null,
     val provenance: String? = null,
-    @SerialName("informational_uri")
+    @SerialName("informationalUri")
     val informationalUri: String? = null,
+    @SerialName("claimSignature")
+    val claimSignature: HashedUri? = null,
+    @SerialName("softBindingsMatched")
+    val softBindingsMatched: Boolean? = null,
+    @SerialName("softBindingAlgorithmsMatched")
+    val softBindingAlgorithmsMatched: List<String>? = null,
 ) {
     companion object {
         /**
@@ -100,6 +106,24 @@ data class Ingredient(
             title = title,
             format = format,
             relationship = Relationship.COMPONENT_OF,
+        )
+
+        /**
+         * Creates an inputTo ingredient with the specified title.
+         *
+         * Use this relationship when an asset is derived from or influenced by another asset,
+         * but the ingredient is not directly embedded or used as a component.
+         *
+         * @param title The title of the input ingredient.
+         * @param format The MIME type of the ingredient.
+         */
+        fun inputTo(
+            title: String,
+            format: String? = null,
+        ) = Ingredient(
+            title = title,
+            format = format,
+            relationship = Relationship.INPUT_TO,
         )
     }
 }

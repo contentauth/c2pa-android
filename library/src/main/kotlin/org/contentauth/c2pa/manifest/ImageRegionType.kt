@@ -87,4 +87,25 @@ enum class ImageRegionType {
     /** A geographical feature or landmark. */
     @SerialName("http://cv.iptc.org/newscodes/imageregiontype/geoFeature")
     GEO_FEATURE,
+    ;
+
+    /** Returns the IPTC image region type URL string for this type. */
+    fun toTypeString(): String = when (this) {
+        HUMAN -> "http://cv.iptc.org/newscodes/imageregiontype/human"
+        FACE -> "http://cv.iptc.org/newscodes/imageregiontype/face"
+        HEADSHOT -> "http://cv.iptc.org/newscodes/imageregiontype/headshot"
+        BODY_PART -> "http://cv.iptc.org/newscodes/imageregiontype/bodyPart"
+        ANIMAL -> "http://cv.iptc.org/newscodes/imageregiontype/animal"
+        PLANT -> "http://cv.iptc.org/newscodes/imageregiontype/plant"
+        PRODUCT -> "http://cv.iptc.org/newscodes/imageregiontype/product"
+        BUILDING -> "http://cv.iptc.org/newscodes/imageregiontype/building"
+        OBJECT -> "http://cv.iptc.org/newscodes/imageregiontype/object"
+        VEHICLE -> "http://cv.iptc.org/newscodes/imageregiontype/vehicle"
+        EVENT -> "http://cv.iptc.org/newscodes/imageregiontype/event"
+        ARTWORK -> "http://cv.iptc.org/newscodes/imageregiontype/artwork"
+        LOGO -> "http://cv.iptc.org/newscodes/imageregiontype/logo"
+        TEXT -> "http://cv.iptc.org/newscodes/imageregiontype/text"
+        VISIBLE_CODE -> "http://cv.iptc.org/newscodes/imageregiontype/visibleCode"
+        GEO_FEATURE -> "http://cv.iptc.org/newscodes/imageregiontype/geoFeature"
+    }
 }
