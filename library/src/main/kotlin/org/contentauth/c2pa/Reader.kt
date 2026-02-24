@@ -103,6 +103,37 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
             }
 
         /**
+         * Creates a reader from a shared [C2PAContext].
+         *
+         * The context can be reused to create multiple readers and builders.
+         * The reader will inherit the context's settings. Use [withStream] or
+         * [withFragment] to configure the reader with media data.
+         *
+         * @param context The context to create the reader from
+         * @return A Reader instance configured with the context's settings
+         * @throws C2PAError.Api if the reader cannot be created
+         *
+         * @sample
+         * ```kotlin
+         * val context = C2PAContext.create()
+         * val reader = Reader.fromContext(context)
+         *     .withStream("image/jpeg", stream)
+         * val json = reader.json()
+         * ```
+         *
+         * @see C2PAContext
+         * @see withStream
+         * @see withFragment
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun fromContext(context: C2PAContext): Reader =
+            executeC2PAOperation("Failed to create reader from context") {
+                val handle = nativeFromContext(context.ptr)
+                if (handle == 0L) null else Reader(handle)
+            }
+
+        /**
          * Creates a reader from manifest data and an associated media stream.
          *
          * This method is used when the manifest is stored separately from the media file, such as
@@ -130,6 +161,8 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
                 if (handle == 0L) null else Reader(handle)
             }
 
+        @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
+
         @JvmStatic private external fun fromStreamNative(format: String, streamHandle: Long): Long
 
         @JvmStatic
@@ -138,6 +171,62 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
             streamHandle: Long,
             manifestData: ByteArray,
         ): Long
+    }
+
+    /**
+     * Configures the reader with a media stream.
+     *
+     * @param format The MIME type of the media (e.g., "image/jpeg", "video/mp4")
+     * @param stream The input stream containing the media file
+     * @return This reader for fluent chaining
+     * @throws C2PAError.Api if the stream cannot be read or the format is unsupported
+     *
+     * @sample
+     * ```kotlin
+     * val reader = Reader.fromContext(context)
+     *     .withStream("image/jpeg", stream)
+     * val json = reader.json()
+     * ```
+     */
+    @Throws(C2PAError::class)
+    fun withStream(format: String, stream: Stream): Reader {
+        val newPtr = withStreamNative(ptr, format, stream.rawPtr)
+        if (newPtr == 0L) {
+            ptr = 0
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to configure reader with stream")
+        }
+        ptr = newPtr
+        return this
+    }
+
+    /**
+     * Configures the reader with a fragment stream for fragmented media.
+     *
+     * This is used for fragmented BMFF media formats where manifests are stored
+     * in separate fragments.
+     *
+     * @param format The MIME type of the media (e.g., "video/mp4")
+     * @param stream The main asset stream
+     * @param fragment The fragment stream
+     * @return This reader for fluent chaining
+     * @throws C2PAError.Api if the streams cannot be read or the format is unsupported
+     *
+     * @sample
+     * ```kotlin
+     * val reader = Reader.fromContext(context)
+     *     .withFragment("video/mp4", mainStream, fragmentStream)
+     * val json = reader.json()
+     * ```
+     */
+    @Throws(C2PAError::class)
+    fun withFragment(format: String, stream: Stream, fragment: Stream): Reader {
+        val newPtr = withFragmentNative(ptr, format, stream.rawPtr, fragment.rawPtr)
+        if (newPtr == 0L) {
+            ptr = 0
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to configure reader with fragment")
+        }
+        ptr = newPtr
+        return this
     }
 
     /**
@@ -302,6 +391,8 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
     }
 
     private external fun free(handle: Long)
+    private external fun withStreamNative(handle: Long, format: String, streamHandle: Long): Long
+    private external fun withFragmentNative(handle: Long, format: String, streamHandle: Long, fragmentHandle: Long): Long
     private external fun toJsonNative(handle: Long): String?
     private external fun toDetailedJsonNative(handle: Long): String?
     private external fun remoteUrlNative(handle: Long): String?

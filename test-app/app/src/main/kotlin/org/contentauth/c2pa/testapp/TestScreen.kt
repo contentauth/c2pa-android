@@ -47,6 +47,7 @@ import kotlinx.coroutines.withContext
 import org.contentauth.c2pa.test.shared.BuilderTests
 import org.contentauth.c2pa.test.shared.CoreTests
 import org.contentauth.c2pa.test.shared.ManifestTests
+import org.contentauth.c2pa.test.shared.SettingsValidatorTests
 import org.contentauth.c2pa.test.shared.SignerTests
 import org.contentauth.c2pa.test.shared.StreamTests
 import org.contentauth.c2pa.test.shared.TestBase
@@ -120,6 +121,16 @@ private class AppSignerTests(private val context: Context) : SignerTests() {
 }
 
 private class AppWebServiceTests(private val context: Context) : WebServiceTests() {
+    override fun getContext(): Context = context
+    override fun loadResourceAsBytes(resourceName: String): ByteArray = loadResourceWithExtensions(resourceName)
+        ?: throw IllegalArgumentException("Resource not found: $resourceName")
+    override fun loadResourceAsString(resourceName: String): String = loadResourceStringWithExtensions(resourceName)
+        ?: throw IllegalArgumentException("Resource not found: $resourceName")
+    override fun copyResourceToFile(resourceName: String, fileName: String): File =
+        copyResourceToCache(context, resourceName, fileName)
+}
+
+private class AppSettingsValidatorTests(private val context: Context) : SettingsValidatorTests() {
     override fun getContext(): Context = context
     override fun loadResourceAsBytes(resourceName: String): ByteArray = loadResourceWithExtensions(resourceName)
         ?: throw IllegalArgumentException("Resource not found: $resourceName")
@@ -204,7 +215,9 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(coreTests.testConcurrentOperations())
     results.add(coreTests.testReaderResourceErrorHandling())
 
-    // Additional Stream Tests (large buffer handling)
+    // Additional Stream Tests
+    results.add(streamTests.testCallbackStreamFactories())
+    results.add(streamTests.testByteArrayStreamBufferGrowth())
     results.add(streamTests.testLargeBufferHandling())
 
     // Manifest Tests
@@ -228,6 +241,27 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(manifestTests.testCreatedFactory())
     results.add(manifestTests.testAllValidationStatusCodes())
     results.add(manifestTests.testAllDigitalSourceTypes())
+
+    // Settings Validator Tests
+    val settingsValidatorTests = AppSettingsValidatorTests(context)
+    results.add(settingsValidatorTests.testValidSettings())
+    results.add(settingsValidatorTests.testInvalidJson())
+    results.add(settingsValidatorTests.testMissingVersion())
+    results.add(settingsValidatorTests.testWrongVersion())
+    results.add(settingsValidatorTests.testUnknownTopLevelKeys())
+    results.add(settingsValidatorTests.testTrustSection())
+    results.add(settingsValidatorTests.testCawgTrustSection())
+    results.add(settingsValidatorTests.testCoreSection())
+    results.add(settingsValidatorTests.testVerifySection())
+    results.add(settingsValidatorTests.testBuilderSection())
+    results.add(settingsValidatorTests.testThumbnailSection())
+    results.add(settingsValidatorTests.testActionsSection())
+    results.add(settingsValidatorTests.testLocalSigner())
+    results.add(settingsValidatorTests.testRemoteSigner())
+    results.add(settingsValidatorTests.testSignerMutualExclusion())
+    results.add(settingsValidatorTests.testValidationResultHelpers())
+    results.add(settingsValidatorTests.testValidateAndLog())
+    results.add(settingsValidatorTests.testIntentAsNumber())
 
     results
 }

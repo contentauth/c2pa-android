@@ -253,6 +253,151 @@ abstract class StreamTests : TestBase() {
         }
     }
 
+    suspend fun testCallbackStreamFactories(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Callback Stream Factories") {
+            val errors = mutableListOf<String>()
+
+            // forReading factory
+            CallbackStream.forReading(
+                reader = { _, _ -> 0 },
+                seeker = { _, _ -> 0L },
+            ).use { stream ->
+                // Should support read and seek
+                stream.read(ByteArray(1), 1)
+                stream.seek(0, SeekMode.START.value)
+                // Should throw on write
+                try {
+                    stream.write(ByteArray(1), 1)
+                    errors.add("forReading should not support write")
+                } catch (e: UnsupportedOperationException) {
+                    // expected
+                }
+                // Should throw on flush
+                try {
+                    stream.flush()
+                    errors.add("forReading should not support flush")
+                } catch (e: UnsupportedOperationException) {
+                    // expected
+                }
+            }
+
+            // forWriting factory
+            CallbackStream.forWriting(
+                writer = { _, length -> length },
+                seeker = { _, _ -> 0L },
+                flusher = { 0 },
+            ).use { stream ->
+                // Should support write, seek, flush
+                stream.write(ByteArray(1), 1)
+                stream.seek(0, SeekMode.START.value)
+                stream.flush()
+                // Should throw on read
+                try {
+                    stream.read(ByteArray(1), 1)
+                    errors.add("forWriting should not support read")
+                } catch (e: UnsupportedOperationException) {
+                    // expected
+                }
+            }
+
+            // forReadWrite factory
+            CallbackStream.forReadWrite(
+                reader = { _, _ -> 0 },
+                writer = { _, length -> length },
+                seeker = { _, _ -> 0L },
+                flusher = { 0 },
+            ).use { stream ->
+                // Should support all operations
+                stream.read(ByteArray(1), 1)
+                stream.write(ByteArray(1), 1)
+                stream.seek(0, SeekMode.START.value)
+                stream.flush()
+            }
+
+            val success = errors.isEmpty()
+            TestResult(
+                "Callback Stream Factories",
+                success,
+                if (success) "All factory methods work correctly" else "Factory method failures",
+                errors.joinToString("\n"),
+            )
+        }
+    }
+
+    suspend fun testByteArrayStreamBufferGrowth(): TestResult = withContext(Dispatchers.IO) {
+        runTest("ByteArrayStream Buffer Growth") {
+            val errors = mutableListOf<String>()
+
+            // Start with empty stream
+            val stream = ByteArrayStream()
+            stream.use {
+                // Write data to trigger buffer growth
+                val data1 = ByteArray(100) { 0xAA.toByte() }
+                it.write(data1, 100)
+
+                // Verify position and data
+                var result = it.getData()
+                if (result.size != 100) {
+                    errors.add("After first write: expected size 100, got ${result.size}")
+                }
+
+                // Write more to trigger growth
+                val data2 = ByteArray(200) { 0xBB.toByte() }
+                it.write(data2, 200)
+
+                result = it.getData()
+                if (result.size != 300) {
+                    errors.add("After second write: expected size 300, got ${result.size}")
+                }
+
+                // Seek back and verify read
+                it.seek(0, SeekMode.START.value)
+                val readBuf = ByteArray(100)
+                val bytesRead = it.read(readBuf, 100)
+                if (bytesRead != 100L) {
+                    errors.add("Read returned $bytesRead instead of 100")
+                }
+                if (readBuf[0] != 0xAA.toByte()) {
+                    errors.add("Read data mismatch at position 0")
+                }
+
+                // Seek to middle and overwrite
+                it.seek(50, SeekMode.START.value)
+                val data3 = ByteArray(10) { 0xCC.toByte() }
+                it.write(data3, 10)
+
+                // Size should not change (overwrite within existing bounds)
+                result = it.getData()
+                if (result.size != 300) {
+                    errors.add("After overwrite: expected size 300, got ${result.size}")
+                }
+                if (result[50] != 0xCC.toByte()) {
+                    errors.add("Overwrite data mismatch at position 50")
+                }
+
+                // Seek to end and verify
+                val endPos = it.seek(0, SeekMode.END.value)
+                if (endPos != 300L) {
+                    errors.add("Seek to end returned $endPos instead of 300")
+                }
+
+                // Read at end should return 0
+                val endRead = it.read(ByteArray(10), 10)
+                if (endRead != 0L) {
+                    errors.add("Read at end returned $endRead instead of 0")
+                }
+            }
+
+            val success = errors.isEmpty()
+            TestResult(
+                "ByteArrayStream Buffer Growth",
+                success,
+                if (success) "Buffer growth and operations work correctly" else "Buffer growth failures",
+                errors.joinToString("\n"),
+            )
+        }
+    }
+
     suspend fun testLargeBufferHandling(): TestResult = withContext(Dispatchers.IO) {
         runTest("Large Buffer Handling") {
             val largeSize = Int.MAX_VALUE.toLong() + 1L
