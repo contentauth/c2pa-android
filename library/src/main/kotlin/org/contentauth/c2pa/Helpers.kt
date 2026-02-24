@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -91,5 +91,5 @@ fun derToRawSignature(derSignature: ByteArray, componentLength: Int): ByteArray 
     return rPadded + sPadded
 }
 
-/** C2PA version fetched once */
+/** The version string of the native C2PA library, lazily fetched once on first access. */
 val c2paVersion: String by lazy { C2PA.version() }

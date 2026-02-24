@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -54,9 +54,9 @@ class C2PAConfigurationController {
             val configuration =
                 C2PAConfiguration(
                     algorithm = "es256",
-                    timestamp_url = "http://timestamp.digicert.com",
-                    signing_url = signingURL,
-                    certificate_chain = encodedCertChain,
+                    timestampUrl = "http://timestamp.digicert.com",
+                    signingUrl = signingURL,
+                    certificateChain = encodedCertChain,
                 )
 
             call.respond(HttpStatusCode.OK, configuration)

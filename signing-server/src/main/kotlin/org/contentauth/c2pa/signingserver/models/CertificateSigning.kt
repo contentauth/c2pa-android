@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -14,17 +14,20 @@ package org.contentauth.c2pa.signingserver.models
 
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Contextual
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
+/** Request payload containing a PEM-encoded certificate signing request. */
 @Serializable
 data class CertificateSigningRequest(
-    val csr: String, // PEM-encoded CSR
+    val csr: String,
 )
 
+/** Response payload for a signed certificate, including the full chain. */
 @Serializable
 data class SignedCertificateSigningResponse(
-    val certificate_id: String,
-    val certificate_chain: String, // PEM-encoded certificate chain
-    @Contextual val expires_at: Instant,
-    val serial_number: String,
+    @SerialName("certificate_id") val certificateId: String,
+    @SerialName("certificate_chain") val certificateChain: String,
+    @SerialName("expires_at") @Contextual val expiresAt: Instant,
+    @SerialName("serial_number") val serialNumber: String,
 )

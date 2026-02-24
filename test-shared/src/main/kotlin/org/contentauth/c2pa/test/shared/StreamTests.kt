@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -31,29 +31,25 @@ abstract class StreamTests : TestBase() {
     suspend fun testStreamOperations(): TestResult = withContext(Dispatchers.IO) {
         runTest("Stream API") {
             val testImageData = loadResourceAsBytes("adobe_20220124_ci")
-            val memStream = ByteArrayStream(testImageData)
-            try {
-                val reader = Reader.fromStream("image/jpeg", memStream)
+            ByteArrayStream(testImageData).use { memStream ->
                 try {
-                    val json = reader.json()
+                    Reader.fromStream("image/jpeg", memStream).use { reader ->
+                        val json = reader.json()
+                        TestResult(
+                            "Stream API",
+                            json.isNotEmpty(),
+                            "Stream API working",
+                            json.take(200),
+                        )
+                    }
+                } catch (e: C2PAError) {
                     TestResult(
                         "Stream API",
-                        json.isNotEmpty(),
-                        "Stream API working",
-                        json.take(200),
+                        false,
+                        "Failed to create reader from stream",
+                        e.toString(),
                     )
-                } finally {
-                    reader.close()
                 }
-            } catch (e: C2PAError) {
-                TestResult(
-                    "Stream API",
-                    false,
-                    "Failed to create reader from stream",
-                    e.toString(),
-                )
-            } finally {
-                memStream.close()
             }
         }
     }
@@ -69,13 +65,11 @@ abstract class StreamTests : TestBase() {
             tempFile.writeBytes(ByteArray(100) { it.toByte() })
 
             try {
-                val preserveStream =
-                    FileStream(
-                        tempFile,
-                        FileStream.Mode.READ_WRITE,
-                        createIfNeeded = false,
-                    )
-                try {
+                FileStream(
+                    tempFile,
+                    FileStream.Mode.READ_WRITE,
+                    createIfNeeded = false,
+                ).use { preserveStream ->
                     val buffer = ByteArray(50)
                     val bytesRead = preserveStream.read(buffer, 50)
                     val success = bytesRead == 50L
@@ -90,8 +84,6 @@ abstract class StreamTests : TestBase() {
                         },
                         "Bytes read: $bytesRead",
                     )
-                } finally {
-                    preserveStream.close()
                 }
             } finally {
                 tempFile.delete()
@@ -104,11 +96,9 @@ abstract class StreamTests : TestBase() {
             val manifestJson = TEST_MANIFEST_JSON
 
             try {
-                val builder = Builder.fromJson(manifestJson)
-                try {
+                Builder.fromJson(manifestJson).use { builder ->
                     builder.setNoEmbed()
-                    val writeOnlyStream = ByteArrayStream()
-                    try {
+                    ByteArrayStream().use { writeOnlyStream ->
                         builder.toArchive(writeOnlyStream)
                         val data = writeOnlyStream.getData()
                         val success = data.isNotEmpty()
@@ -123,11 +113,7 @@ abstract class StreamTests : TestBase() {
                             },
                             "Data size: ${data.size}",
                         )
-                    } finally {
-                        writeOnlyStream.close()
                     }
-                } finally {
-                    builder.close()
                 }
             } catch (e: C2PAError) {
                 TestResult(
@@ -151,42 +137,39 @@ abstract class StreamTests : TestBase() {
             var position = 0
             var data = ByteArray(0)
 
-            val customStream =
-                CallbackStream(
-                    reader = { buf, length ->
-                        readCalled = true
-                        if (position >= data.size) return@CallbackStream 0
-                        val toRead = minOf(length, data.size - position)
-                        System.arraycopy(data, position, buf, 0, toRead)
-                        position += toRead
-                        toRead
-                    },
-                    seeker = { offset, mode ->
-                        seekCalled = true
-                        position =
-                            when (mode) {
-                                SeekMode.START -> offset.toInt()
-                                SeekMode.CURRENT -> position + offset.toInt()
-                                SeekMode.END -> data.size + offset.toInt()
-                            }
-                        position = position.coerceIn(0, data.size)
-                        position.toLong()
-                    },
-                    writer = { writeData, length ->
-                        writeCalled = true
-                        buffer.write(writeData, 0, length)
-                        data = buffer.toByteArray()
-                        position += length
-                        length
-                    },
-                    flusher = {
-                        flushCalled = true
-                        data = buffer.toByteArray()
-                        0
-                    },
-                )
-
-            try {
+            CallbackStream(
+                reader = { buf, length ->
+                    readCalled = true
+                    if (position >= data.size) return@CallbackStream 0
+                    val toRead = minOf(length, data.size - position)
+                    System.arraycopy(data, position, buf, 0, toRead)
+                    position += toRead
+                    toRead
+                },
+                seeker = { offset, mode ->
+                    seekCalled = true
+                    position =
+                        when (mode) {
+                            SeekMode.START -> offset.toInt()
+                            SeekMode.CURRENT -> position + offset.toInt()
+                            SeekMode.END -> data.size + offset.toInt()
+                        }
+                    position = position.coerceIn(0, data.size)
+                    position.toLong()
+                },
+                writer = { writeData, length ->
+                    writeCalled = true
+                    buffer.write(writeData, 0, length)
+                    data = buffer.toByteArray()
+                    position += length
+                    length
+                },
+                flusher = {
+                    flushCalled = true
+                    data = buffer.toByteArray()
+                    0
+                },
+            ).use { customStream ->
                 customStream.write(ByteArray(10), 10)
                 customStream.seek(0, SeekMode.START.value)
                 customStream.read(ByteArray(5), 5)
@@ -203,8 +186,6 @@ abstract class StreamTests : TestBase() {
                     },
                     "Read: $readCalled, Write: $writeCalled, Seek: $seekCalled, Flush: $flushCalled",
                 )
-            } finally {
-                customStream.close()
             }
         }
     }
@@ -402,19 +383,16 @@ abstract class StreamTests : TestBase() {
         runTest("Large Buffer Handling") {
             val largeSize = Int.MAX_VALUE.toLong() + 1L
 
-            val mockStream =
-                CallbackStream(
-                    reader = { buf, length ->
-                        // This should trigger our overflow protection
-                        0
-                    },
-                    writer = { data, length ->
-                        // This should trigger our overflow protection
-                        0
-                    },
-                )
-
-            try {
+            CallbackStream(
+                reader = { buf, length ->
+                    // This should trigger our overflow protection
+                    0
+                },
+                writer = { data, length ->
+                    // This should trigger our overflow protection
+                    0
+                },
+            ).use { mockStream ->
                 // Try to read with a buffer larger than Int.MAX_VALUE
                 val result = mockStream.read(ByteArray(1024), largeSize)
                 // The implementation should safely handle this
@@ -430,8 +408,6 @@ abstract class StreamTests : TestBase() {
                     },
                     "Requested: $largeSize, Got: $result",
                 )
-            } finally {
-                mockStream.close()
             }
         }
     }

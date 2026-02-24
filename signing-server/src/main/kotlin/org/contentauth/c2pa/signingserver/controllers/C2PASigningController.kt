@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -30,6 +30,12 @@ import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 
+/**
+ * Controller for C2PA manifest signing operations.
+ *
+ * Loads an ES256 certificate chain and private key at initialization, then signs incoming
+ * manifest data using ECDSA (SHA256withECDSA) or Ed25519.
+ */
 class C2PASigningController {
 
     private val certificateChain: String
@@ -61,6 +67,7 @@ class C2PASigningController {
                 .use { it.readText() }
     }
 
+    /** Signs [data] with the given PEM-encoded private key using the specified JCA [algorithm]. */
     private fun signWithECDSA(data: ByteArray, privateKeyPEM: String, algorithm: String): ByteArray {
         // Parse the private key from PEM
         val privateKey =
@@ -105,6 +112,12 @@ class C2PASigningController {
         return derToRaw(derSignature)
     }
 
+    /**
+     * Converts a DER-encoded ECDSA signature to raw `r||s` format for COSE.
+     *
+     * Note: This logic is duplicated from the library's `derToRawSignature()` utility because the
+     * signing server module does not depend on the C2PA library.
+     */
     private fun derToRaw(derSignature: ByteArray): ByteArray {
         // DER format: 0x30 [total-length] 0x02 [r-length] [r-bytes] 0x02 [s-length] [s-bytes]
         // Raw format: [r-bytes] [s-bytes] (each zero-padded to coordinate size)
@@ -152,6 +165,7 @@ class C2PASigningController {
         return rPadded + sPadded
     }
 
+    /** Signs [data] with the given PEM-encoded Ed25519 private key. */
     private fun signWithEd25519(data: ByteArray, privateKeyPEM: String): ByteArray {
         // Parse the private key
         val privateKeyContent =
@@ -172,6 +186,7 @@ class C2PASigningController {
         return signature.sign()
     }
 
+    /** Handles a POST request to sign C2PA manifest data. */
     suspend fun signManifest(call: ApplicationCall) {
         try {
             call.application.log.info("[C2PA] Signing manifest request received")
