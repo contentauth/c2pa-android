@@ -12,6 +12,7 @@ each license.
 
 package org.contentauth.c2pa
 
+import org.contentauth.c2pa.settings.C2PASettingsDefinition
 import java.io.Closeable
 
 /**
@@ -59,6 +60,18 @@ class C2PASettings internal constructor(internal var ptr: Long) : Closeable {
             if (handle == 0L) null else C2PASettings(handle)
         }
 
+        /**
+         * Creates a new settings instance from a [C2PASettingsDefinition].
+         *
+         * @param definition The typed settings definition to apply.
+         * @return A new [C2PASettings] instance configured from the definition.
+         * @throws C2PAError.Api if the settings cannot be created or the definition is invalid.
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun fromDefinition(definition: C2PASettingsDefinition): C2PASettings =
+            create().updateFrom(definition)
+
         @JvmStatic private external fun nativeNew(): Long
     }
 
@@ -78,6 +91,17 @@ class C2PASettings internal constructor(internal var ptr: Long) : Closeable {
         }
         return this
     }
+
+    /**
+     * Updates settings from a typed [C2PASettingsDefinition].
+     *
+     * @param definition The typed settings definition to apply.
+     * @return This settings instance for fluent chaining.
+     * @throws C2PAError.Api if the definition is invalid.
+     */
+    @Throws(C2PAError::class)
+    fun updateFrom(definition: C2PASettingsDefinition): C2PASettings =
+        updateFromString(definition.toJson(), "json")
 
     /**
      * Sets a specific configuration value using dot notation.

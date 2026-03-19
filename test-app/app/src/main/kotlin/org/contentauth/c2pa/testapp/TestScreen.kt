@@ -47,7 +47,7 @@ import kotlinx.coroutines.withContext
 import org.contentauth.c2pa.test.shared.BuilderTests
 import org.contentauth.c2pa.test.shared.CoreTests
 import org.contentauth.c2pa.test.shared.ManifestTests
-import org.contentauth.c2pa.test.shared.SettingsValidatorTests
+import org.contentauth.c2pa.test.shared.SettingsDefinitionTests
 import org.contentauth.c2pa.test.shared.SignerTests
 import org.contentauth.c2pa.test.shared.StreamTests
 import org.contentauth.c2pa.test.shared.TestBase
@@ -64,11 +64,15 @@ private fun loadResourceWithExtensions(resourceName: String): ByteArray? =
     TestBase.loadSharedResourceAsBytes("$resourceName.jpg")
         ?: TestBase.loadSharedResourceAsBytes("$resourceName.pem")
         ?: TestBase.loadSharedResourceAsBytes("$resourceName.key")
+        ?: TestBase.loadSharedResourceAsBytes("$resourceName.toml")
+        ?: TestBase.loadSharedResourceAsBytes("$resourceName.json")
 
 private fun loadResourceStringWithExtensions(resourceName: String): String? =
     TestBase.loadSharedResourceAsString("$resourceName.jpg")
         ?: TestBase.loadSharedResourceAsString("$resourceName.pem")
         ?: TestBase.loadSharedResourceAsString("$resourceName.key")
+        ?: TestBase.loadSharedResourceAsString("$resourceName.toml")
+        ?: TestBase.loadSharedResourceAsString("$resourceName.json")
 
 private fun copyResourceToCache(context: Context, resourceName: String, fileName: String): File {
     val file = File(context.cacheDir, fileName)
@@ -130,7 +134,7 @@ private class AppWebServiceTests(private val context: Context) : WebServiceTests
         copyResourceToCache(context, resourceName, fileName)
 }
 
-private class AppSettingsValidatorTests(private val context: Context) : SettingsValidatorTests() {
+private class AppSettingsDefinitionTests(private val context: Context) : SettingsDefinitionTests() {
     override fun getContext(): Context = context
     override fun loadResourceAsBytes(resourceName: String): ByteArray = loadResourceWithExtensions(resourceName)
         ?: throw IllegalArgumentException("Resource not found: $resourceName")
@@ -242,26 +246,21 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(manifestTests.testAllValidationStatusCodes())
     results.add(manifestTests.testAllDigitalSourceTypes())
 
-    // Settings Validator Tests
-    val settingsValidatorTests = AppSettingsValidatorTests(context)
-    results.add(settingsValidatorTests.testValidSettings())
-    results.add(settingsValidatorTests.testInvalidJson())
-    results.add(settingsValidatorTests.testMissingVersion())
-    results.add(settingsValidatorTests.testWrongVersion())
-    results.add(settingsValidatorTests.testUnknownTopLevelKeys())
-    results.add(settingsValidatorTests.testTrustSection())
-    results.add(settingsValidatorTests.testCawgTrustSection())
-    results.add(settingsValidatorTests.testCoreSection())
-    results.add(settingsValidatorTests.testVerifySection())
-    results.add(settingsValidatorTests.testBuilderSection())
-    results.add(settingsValidatorTests.testThumbnailSection())
-    results.add(settingsValidatorTests.testActionsSection())
-    results.add(settingsValidatorTests.testLocalSigner())
-    results.add(settingsValidatorTests.testRemoteSigner())
-    results.add(settingsValidatorTests.testSignerMutualExclusion())
-    results.add(settingsValidatorTests.testValidationResultHelpers())
-    results.add(settingsValidatorTests.testValidateAndLog())
-    results.add(settingsValidatorTests.testIntentAsNumber())
+    // Settings Definition Tests
+    val settingsDefinitionTests = AppSettingsDefinitionTests(context)
+    results.add(settingsDefinitionTests.testRoundTrip())
+    results.add(settingsDefinitionTests.testFromJson())
+    results.add(settingsDefinitionTests.testSettingsIntent())
+    results.add(settingsDefinitionTests.testToJson())
+    results.add(settingsDefinitionTests.testSignerSettings())
+    results.add(settingsDefinitionTests.testCawgSigner())
+    results.add(settingsDefinitionTests.testIgnoreUnknownKeys())
+    results.add(settingsDefinitionTests.testBuilderSettings())
+    results.add(settingsDefinitionTests.testFromDefinition())
+    results.add(settingsDefinitionTests.testUpdateFrom())
+    results.add(settingsDefinitionTests.testPrettyJson())
+    results.add(settingsDefinitionTests.testEnumSerialization())
+    results.add(settingsDefinitionTests.testActionTemplates())
 
     results
 }

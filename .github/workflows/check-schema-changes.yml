@@ -1,0 +1,153 @@
+name: Check C2PA schema changes
+
+on:
+  schedule:
+    # Check for schema changes every 6 hours (offset from SDK update check)
+    - cron: "30 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  check-schema:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Get current and previous c2pa-rs tags
+        id: get_tags
+        run: |
+          TAGS=$(curl -s "https://api.github.com/repos/contentauth/c2pa-rs/releases" | \
+            jq -r '.[].tag_name | select(test("^c2pa-v"))' | \
+            head -2)
+
+          CURRENT_TAG=$(echo "$TAGS" | head -1)
+          PREVIOUS_TAG=$(echo "$TAGS" | tail -1)
+
+          if [ -z "$CURRENT_TAG" ] || [ -z "$PREVIOUS_TAG" ]; then
+            echo "Could not find two consecutive c2pa release tags"
+            exit 1
+          fi
+
+          if [ "$CURRENT_TAG" = "$PREVIOUS_TAG" ]; then
+            echo "Only one tag found, nothing to compare"
+            exit 1
+          fi
+
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "Current tag: $CURRENT_TAG"
+          echo "Previous tag: $PREVIOUS_TAG"
+
+      - name: Clone c2pa-rs
+        run: |
+          git clone https://github.com/contentauth/c2pa-rs.git /tmp/c2pa-rs
+          cd /tmp/c2pa-rs
+          git fetch --tags
+
+      - name: Generate schemas for both tags
+        run: |
+          for TAG_VAR in current previous; do
+            if [ "$TAG_VAR" = "current" ]; then
+              TAG="${{ steps.get_tags.outputs.current_tag }}"
+            else
+              TAG="${{ steps.get_tags.outputs.previous_tag }}"
+            fi
+
+            cd /tmp/c2pa-rs
+            git checkout "$TAG"
+            cargo run -p export_schema --features c2pa/rust_native_crypto 2>/dev/null || \
+              cargo run -p export_schema 2>/dev/null
+            mkdir -p "/tmp/schemas-$TAG_VAR"
+            cp target/schema/*.schema.json "/tmp/schemas-$TAG_VAR/"
+          done
+
+      - name: Compare schemas
+        id: compare
+        run: |
+          CHANGES=""
+          HAS_CHANGES=false
+
+          for schema in /tmp/schemas-current/*.schema.json; do
+            NAME=$(basename "$schema")
+            PREV="/tmp/schemas-previous/$NAME"
+
+            if [ ! -f "$PREV" ]; then
+              CHANGES="${CHANGES}- **${NAME}**: New schema (not present in previous tag)\n"
+              HAS_CHANGES=true
+              continue
+            fi
+
+            DIFF=$(diff \
+              <(python3 -c "import json,sys; json.dump(json.load(open('$PREV')),sys.stdout,sort_keys=True,indent=2)") \
+              <(python3 -c "import json,sys; json.dump(json.load(open('$schema')),sys.stdout,sort_keys=True,indent=2)") \
+              || true)
+
+            if [ -n "$DIFF" ]; then
+              ADDED=$(echo "$DIFF" | grep -c '^>' || true)
+              REMOVED=$(echo "$DIFF" | grep -c '^<' || true)
+              CHANGES="${CHANGES}- **${NAME}**: ${ADDED} additions, ${REMOVED} removals\n"
+              HAS_CHANGES=true
+            fi
+          done
+
+          for schema in /tmp/schemas-previous/*.schema.json; do
+            NAME=$(basename "$schema")
+            if [ ! -f "/tmp/schemas-current/$NAME" ]; then
+              CHANGES="${CHANGES}- **${NAME}**: Schema removed\n"
+              HAS_CHANGES=true
+            fi
+          done
+
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+
+          if [ "$HAS_CHANGES" = true ]; then
+            echo "changes<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$CHANGES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Ensure schema-change label exists
+        if: steps.compare.outputs.has_changes == 'true'
+        run: |
+          gh label create "schema-change" \
+            --description "Upstream c2pa-rs JSON schema has changed" \
+            --color "D93F0B" \
+            2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for existing open issue
+        if: steps.compare.outputs.has_changes == 'true'
+        id: existing_issue
+        run: |
+          EXISTING=$(gh issue list \
+            --label "schema-change" \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')
+
+          echo "number=$EXISTING" >> $GITHUB_OUTPUT
+
+          if [ -n "$EXISTING" ]; then
+            echo "Open schema change issue already exists: #$EXISTING"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: File issue for schema changes
+        if: steps.compare.outputs.has_changes == 'true' && steps.existing_issue.outputs.number == ''
+        run: |
+          gh issue create \
+            --title "C2PA schema changes detected between ${{ steps.get_tags.outputs.previous_tag }} and ${{ steps.get_tags.outputs.current_tag }}" \
+            --label "schema-change" \
+            --body "Review the upstream schema changes and update \`C2PASettingsDefinition.kt\` and any other typed data classes to match.
+
+          ${{ steps.compare.outputs.changes }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
