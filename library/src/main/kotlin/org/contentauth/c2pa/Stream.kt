@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -12,7 +12,6 @@ each license.
 
 package org.contentauth.c2pa
 
-import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -36,6 +35,12 @@ typealias StreamFlusher = () -> Int
 
 /** Abstract base class for C2PA streams */
 abstract class Stream : Closeable {
+
+    companion object {
+        init {
+            loadC2PALibraries()
+        }
+    }
 
     private var nativeHandle: Long = 0
     internal val rawPtr: Long
@@ -96,10 +101,17 @@ class DataStream(private val data: ByteArray) : Stream() {
 
     override fun write(data: ByteArray, length: Long): Long =
         throw UnsupportedOperationException("DataStream is read-only")
-    override fun flush(): Long = 0L
+
+    override fun flush(): Long =
+        throw UnsupportedOperationException("DataStream is read-only")
 }
 
-/** Stream implementation with callbacks */
+/**
+ * Stream implementation with callbacks.
+ *
+ * Consider using the type-safe factory methods [forReading], [forWriting], or [forReadWrite]
+ * to ensure required callbacks are provided at compile time.
+ */
 class CallbackStream(
     private val reader: StreamReader? = null,
     private val seeker: StreamSeeker? = null,
@@ -117,7 +129,7 @@ class CallbackStream(
 
     override fun seek(offset: Long, mode: Int): Long {
         val seekMode =
-            SeekMode.values().find { it.value == mode }
+            SeekMode.entries.find { it.value == mode }
                 ?: throw IllegalArgumentException("Invalid seek mode: $mode")
         return seeker?.invoke(offset, seekMode)
             ?: throw UnsupportedOperationException(
@@ -137,6 +149,55 @@ class CallbackStream(
         ?: throw UnsupportedOperationException(
             "Flush operation not supported: no flusher callback provided",
         )
+
+    companion object {
+        /**
+         * Creates a read-only callback stream.
+         *
+         * @param reader Callback to read data into a buffer, returning bytes read.
+         * @param seeker Callback to seek to a position, returning the new position.
+         * @return A CallbackStream configured for reading.
+         */
+        fun forReading(
+            reader: StreamReader,
+            seeker: StreamSeeker,
+        ): CallbackStream = CallbackStream(reader = reader, seeker = seeker)
+
+        /**
+         * Creates a write-only callback stream.
+         *
+         * @param writer Callback to write data from a buffer, returning bytes written.
+         * @param seeker Callback to seek to a position, returning the new position.
+         * @param flusher Callback to flush the stream, returning 0 on success.
+         * @return A CallbackStream configured for writing.
+         */
+        fun forWriting(
+            writer: StreamWriter,
+            seeker: StreamSeeker,
+            flusher: StreamFlusher,
+        ): CallbackStream = CallbackStream(writer = writer, seeker = seeker, flusher = flusher)
+
+        /**
+         * Creates a read-write callback stream.
+         *
+         * @param reader Callback to read data into a buffer, returning bytes read.
+         * @param writer Callback to write data from a buffer, returning bytes written.
+         * @param seeker Callback to seek to a position, returning the new position.
+         * @param flusher Callback to flush the stream, returning 0 on success.
+         * @return A CallbackStream configured for both reading and writing.
+         */
+        fun forReadWrite(
+            reader: StreamReader,
+            writer: StreamWriter,
+            seeker: StreamSeeker,
+            flusher: StreamFlusher,
+        ): CallbackStream = CallbackStream(
+            reader = reader,
+            writer = writer,
+            seeker = seeker,
+            flusher = flusher,
+        )
+    }
 }
 
 /** File-based stream implementation */
@@ -223,17 +284,13 @@ class FileStream(fileURL: File, mode: Mode = Mode.READ_WRITE, createIfNeeded: Bo
  * output.
  */
 class ByteArrayStream(initialData: ByteArray? = null) : Stream() {
-    private val buffer = ByteArrayOutputStream()
+    private var data: ByteArray = initialData?.copyOf() ?: ByteArray(0)
     private var position = 0
-    private var data: ByteArray = initialData ?: ByteArray(0)
-
-    init {
-        initialData?.let { buffer.write(it) }
-    }
+    private var size = data.size
 
     override fun read(buffer: ByteArray, length: Long): Long {
-        if (position >= data.size) return 0
-        val toRead = minOf(length.toInt(), data.size - position)
+        if (position >= size) return 0
+        val toRead = minOf(length.toInt(), size - position)
         System.arraycopy(data, position, buffer, 0, toRead)
         position += toRead
         return toRead.toLong()
@@ -244,42 +301,37 @@ class ByteArrayStream(initialData: ByteArray? = null) : Stream() {
             when (mode) {
                 SeekMode.START.value -> offset.toInt()
                 SeekMode.CURRENT.value -> position + offset.toInt()
-                SeekMode.END.value -> data.size + offset.toInt()
+                SeekMode.END.value -> size + offset.toInt()
                 else -> return -1L
             }
-        position = position.coerceIn(0, data.size)
+        position = position.coerceIn(0, size)
         return position.toLong()
     }
 
-    override fun write(writeData: ByteArray, length: Long): Long {
+    override fun write(data: ByteArray, length: Long): Long {
         val len = length.toInt()
-        if (position < data.size) {
-            // Writing in the middle - need to handle carefully
-            val newData = data.toMutableList()
-            for (i in 0 until len) {
-                if (position + i < newData.size) {
-                    newData[position + i] = writeData[i]
-                } else {
-                    newData.add(writeData[i])
-                }
-            }
-            data = newData.toByteArray()
-            buffer.reset()
-            buffer.write(data)
-        } else {
-            // Appending
-            buffer.write(writeData, 0, len)
-            data = buffer.toByteArray()
+        val requiredCapacity = position + len
+
+        // Expand buffer if needed (grow by 2x or to required size, whichever is larger)
+        if (requiredCapacity > this.data.size) {
+            val newCapacity = maxOf(this.data.size * 2, requiredCapacity)
+            this.data = this.data.copyOf(newCapacity)
         }
+
+        // Copy data directly into buffer
+        System.arraycopy(data, 0, this.data, position, len)
         position += len
-        return length
+
+        // Update size if we wrote past the current end
+        if (position > size) {
+            size = position
+        }
+
+        return len.toLong()
     }
 
-    override fun flush(): Long {
-        data = buffer.toByteArray()
-        return 0
-    }
+    override fun flush(): Long = 0
 
     /** Get the current data in the stream */
-    fun getData(): ByteArray = data
+    fun getData(): ByteArray = data.copyOf(size)
 }

@@ -63,6 +63,21 @@ class AndroidStreamTests : StreamTests() {
     }
 
     @Test
+    fun runTestCallbackStreamFactories() = runBlocking {
+        val result = testCallbackStreamFactories()
+        assertTrue(result.success, "Callback Stream Factories test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestByteArrayStreamBufferGrowth() = runBlocking {
+        val result = testByteArrayStreamBufferGrowth()
+        assertTrue(
+            result.success,
+            "ByteArrayStream Buffer Growth test failed: ${result.message}",
+        )
+    }
+
+    @Test
     fun runTestFileOperationsWithDataDirectory() = runBlocking {
         val result = testFileOperationsWithDataDirectory()
         assertTrue(

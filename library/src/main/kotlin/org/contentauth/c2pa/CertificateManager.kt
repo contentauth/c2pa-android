@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -21,7 +21,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import org.bouncycastle.asn1.ASN1ObjectIdentifier
 import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers
 import org.bouncycastle.asn1.x500.X500Name
@@ -211,8 +210,7 @@ object CertificateManager {
         }
     }
 
-    // Private helper methods
-
+    /** Builds an X.500 distinguished name from the certificate configuration. */
     private fun buildX500Name(config: CertificateConfig): X500Name {
         val parts = mutableListOf<String>()
         parts.add("CN=${config.commonName}")
@@ -225,8 +223,8 @@ object CertificateManager {
         return X500Name(parts.joinToString(", "))
     }
 
+    /** Creates a [ContentSigner] using the Android KeyStore for the given private key. */
     private fun createContentSigner(privateKey: PrivateKey): ContentSigner {
-        // For EC keys, use SHA256withECDSA
         val signatureAlgorithm =
             when (privateKey.algorithm) {
                 "EC" -> "SHA256withECDSA"
@@ -241,6 +239,7 @@ object CertificateManager {
         return AndroidKeyStoreContentSigner(privateKey, signatureAlgorithm)
     }
 
+    /** Converts a PKCS#10 certification request to PEM-encoded string. */
     private fun csrToPEM(csr: PKCS10CertificationRequest): String {
         val writer = StringWriter()
         val pemWriter = PemWriter(writer)
@@ -250,6 +249,7 @@ object CertificateManager {
         return writer.toString()
     }
 
+    /** Creates a StrongBox-backed EC key pair in the Android KeyStore. */
     private fun createStrongBoxKey(
         config: StrongBoxSigner.Config,
         tempCertConfig: TempCertificateConfig =
@@ -424,11 +424,6 @@ object CertificateManager {
         val serial_number: String,
     )
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
     private suspend fun submitCSR(
         csr: String,
         metadata: CSRMetadata,
@@ -448,7 +443,7 @@ object CertificateManager {
             apiKey?.let { connection.setRequestProperty("X-API-Key", it) }
 
             val request = CSRRequest(csr, metadata)
-            val requestJson = json.encodeToString(request)
+            val requestJson = C2PAJson.default.encodeToString(request)
 
             connection.outputStream.use { output ->
                 output.write(requestJson.toByteArray())
@@ -458,7 +453,7 @@ object CertificateManager {
                 val response = connection.inputStream.bufferedReader().use { it.readText() }
                 connection.disconnect()
 
-                val csrResponse = json.decodeFromString<CSRResponse>(response)
+                val csrResponse = C2PAJson.default.decodeFromString<CSRResponse>(response)
                 Result.success(csrResponse)
             } else {
                 val error =

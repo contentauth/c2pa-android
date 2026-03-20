@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -23,12 +23,22 @@ import java.io.File
  */
 abstract class TestBase {
 
+    /** Status of an individual test execution. */
     enum class TestStatus {
         PASSED,
         FAILED,
         SKIPPED,
     }
 
+    /**
+     * Result of a single test execution.
+     *
+     * @property name The test name.
+     * @property success Whether the test passed.
+     * @property message A human-readable summary of the outcome.
+     * @property details Optional additional details (e.g., stack traces, data dumps).
+     * @property status The test status, derived from [success] by default.
+     */
     data class TestResult(
         val name: String,
         val success: Boolean,
@@ -38,10 +48,23 @@ abstract class TestBase {
     )
 
     companion object {
+        // Note: C2PA 2.3 spec requires first action to be "c2pa.created" or "c2pa.opened"
         const val TEST_MANIFEST_JSON =
             """{
             "claim_generator": "test_app/1.0",
-            "assertions": [{"label": "c2pa.test", "data": {"test": true}}]
+            "assertions": [
+                {
+                    "label": "c2pa.actions",
+                    "data": {
+                        "actions": [
+                            {
+                                "action": "c2pa.created",
+                                "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+                            }
+                        ]
+                    }
+                }
+            ]
         }"""
 
         /** Load a test resource from the classpath (test-shared module resources). */

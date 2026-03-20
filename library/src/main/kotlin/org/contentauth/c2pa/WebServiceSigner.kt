@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -14,7 +14,6 @@ package org.contentauth.c2pa
 
 import android.util.Base64
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,12 +38,6 @@ class WebServiceSigner(
     private val bearerToken: String? = null,
     private val customHeaders: Map<String, String> = emptyMap(),
 ) {
-
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-    }
-
     private val httpClient =
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -98,13 +91,13 @@ class WebServiceSigner(
 
         val responseBody = response.body?.string() ?: throw SignerException.InvalidResponse
 
-        return json.decodeFromString(responseBody)
+        return C2PAJson.default.decodeFromString(responseBody)
     }
 
     private fun signData(data: ByteArray, signingURL: String): ByteArray {
         val dataToSignBase64 = Base64.encodeToString(data, Base64.NO_WRAP)
         val requestJson =
-            json.encodeToString(SignRequest.serializer(), SignRequest(claim = dataToSignBase64))
+            C2PAJson.default.encodeToString(SignRequest.serializer(), SignRequest(claim = dataToSignBase64))
 
         val requestBuilder =
             Request.Builder()
@@ -124,7 +117,7 @@ class WebServiceSigner(
         }
 
         val responseBody = response.body?.string() ?: throw SignerException.InvalidResponse
-        val signResponse = json.decodeFromString<SignResponse>(responseBody)
+        val signResponse = C2PAJson.default.decodeFromString<SignResponse>(responseBody)
         return Base64.decode(signResponse.signature, Base64.NO_WRAP)
     }
 

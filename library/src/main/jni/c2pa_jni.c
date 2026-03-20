@@ -750,29 +750,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(
 }
 
 // Builder native methods
-JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromJson(JNIEnv *env, jclass clazz, jstring manifestJson) {
-    if (manifestJson == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Manifest JSON cannot be null");
-        return 0;
-    }
-    
-    const char *cmanifestJson = jstring_to_cstring(env, manifestJson);
-    if (cmanifestJson == NULL) {
-        return 0;
-    }
-    
-    struct C2paBuilder *builder = c2pa_builder_from_json(cmanifestJson);
-    release_cstring(env, manifestJson, cmanifestJson);
-    
-    if (builder == NULL) {
-        throw_c2pa_exception(env, "Failed to create builder from JSON");
-        return 0;
-    }
-    
-    return (jlong)(uintptr_t)builder;
-}
-
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIEnv *env, jclass clazz, jlong streamPtr) {
     if (streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
@@ -1214,6 +1191,247 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Signer_free(JNIEnv *env, jobjec
         
         c2pa_signer_free(signer);
     }
+}
+
+// C2PASettings native methods
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PASettings_nativeNew(JNIEnv *env, jclass clazz) {
+    struct C2paSettings *settings = c2pa_settings_new();
+    if (settings == NULL) {
+        return 0;
+    }
+    return (jlong)(uintptr_t)settings;
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PASettings_updateFromStringNative(JNIEnv *env, jobject obj, jlong settingsPtr, jstring settingsStr, jstring format) {
+    if (settingsPtr == 0 || settingsStr == NULL || format == NULL) {
+        return -1;
+    }
+
+    struct C2paSettings *settings = (struct C2paSettings*)(uintptr_t)settingsPtr;
+    const char *csettingsStr = jstring_to_cstring(env, settingsStr);
+    const char *cformat = jstring_to_cstring(env, format);
+
+    if (csettingsStr == NULL || cformat == NULL) {
+        release_cstring(env, settingsStr, csettingsStr);
+        release_cstring(env, format, cformat);
+        return -1;
+    }
+
+    int result = c2pa_settings_update_from_string(settings, csettingsStr, cformat);
+
+    release_cstring(env, settingsStr, csettingsStr);
+    release_cstring(env, format, cformat);
+
+    return result;
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PASettings_setValueNative(JNIEnv *env, jobject obj, jlong settingsPtr, jstring path, jstring value) {
+    if (settingsPtr == 0 || path == NULL || value == NULL) {
+        return -1;
+    }
+
+    struct C2paSettings *settings = (struct C2paSettings*)(uintptr_t)settingsPtr;
+    const char *cpath = jstring_to_cstring(env, path);
+    const char *cvalue = jstring_to_cstring(env, value);
+
+    if (cpath == NULL || cvalue == NULL) {
+        release_cstring(env, path, cpath);
+        release_cstring(env, value, cvalue);
+        return -1;
+    }
+
+    int result = c2pa_settings_set_value(settings, cpath, cvalue);
+
+    release_cstring(env, path, cpath);
+    release_cstring(env, value, cvalue);
+
+    return result;
+}
+
+JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PASettings_free(JNIEnv *env, jobject obj, jlong settingsPtr) {
+    if (settingsPtr != 0) {
+        c2pa_free((const void*)(uintptr_t)settingsPtr);
+    }
+}
+
+// C2PAContext native methods
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContext_nativeNew(JNIEnv *env, jclass clazz) {
+    struct C2paContext *context = c2pa_context_new();
+    if (context == NULL) {
+        return 0;
+    }
+    return (jlong)(uintptr_t)context;
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContext_nativeNewWithSettings(JNIEnv *env, jclass clazz, jlong settingsPtr) {
+    if (settingsPtr == 0) {
+        return 0;
+    }
+
+    struct C2paContextBuilder *builder = c2pa_context_builder_new();
+    if (builder == NULL) {
+        return 0;
+    }
+
+    struct C2paSettings *settings = (struct C2paSettings*)(uintptr_t)settingsPtr;
+    int result = c2pa_context_builder_set_settings(builder, settings);
+    if (result < 0) {
+        c2pa_free(builder);
+        return 0;
+    }
+
+    // build consumes the builder
+    struct C2paContext *context = c2pa_context_builder_build(builder);
+    if (context == NULL) {
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)context;
+}
+
+JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_free(JNIEnv *env, jobject obj, jlong contextPtr) {
+    if (contextPtr != 0) {
+        c2pa_free((const void*)(uintptr_t)contextPtr);
+    }
+}
+
+// Builder context-based methods
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromContext(JNIEnv *env, jclass clazz, jlong contextPtr) {
+    if (contextPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Context cannot be null");
+        return 0;
+    }
+
+    struct C2paContext *context = (struct C2paContext*)(uintptr_t)contextPtr;
+    struct C2paBuilder *builder = c2pa_builder_from_context(context);
+
+    if (builder == NULL) {
+        throw_c2pa_exception(env, "Failed to create builder from context");
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)builder;
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withDefinitionNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring manifestJson) {
+    if (builderPtr == 0 || manifestJson == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and manifest JSON cannot be null");
+        return 0;
+    }
+
+    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
+    const char *cmanifestJson = jstring_to_cstring(env, manifestJson);
+    if (cmanifestJson == NULL) {
+        return 0;
+    }
+
+    // This consumes the old builder pointer
+    struct C2paBuilder *newBuilder = c2pa_builder_with_definition(builder, cmanifestJson);
+    release_cstring(env, manifestJson, cmanifestJson);
+
+    if (newBuilder == NULL) {
+        throw_c2pa_exception(env, "Failed to set builder definition");
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)newBuilder;
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
+    if (builderPtr == 0 || streamPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and stream cannot be null");
+        return 0;
+    }
+
+    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
+    struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
+
+    // This consumes the old builder pointer
+    struct C2paBuilder *newBuilder = c2pa_builder_with_archive(builder, stream);
+
+    if (newBuilder == NULL) {
+        throw_c2pa_exception(env, "Failed to set builder archive");
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)newBuilder;
+}
+
+// Reader context-based methods
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_nativeFromContext(JNIEnv *env, jclass clazz, jlong contextPtr) {
+    if (contextPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Context cannot be null");
+        return 0;
+    }
+
+    struct C2paContext *context = (struct C2paContext*)(uintptr_t)contextPtr;
+    struct C2paReader *reader = c2pa_reader_from_context(context);
+
+    if (reader == NULL) {
+        throw_c2pa_exception(env, "Failed to create reader from context");
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)reader;
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring format, jlong streamPtr) {
+    if (readerPtr == 0 || format == NULL || streamPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Reader, format, and stream cannot be null");
+        return 0;
+    }
+
+    struct C2paReader *reader = (struct C2paReader*)(uintptr_t)readerPtr;
+    const char *cformat = jstring_to_cstring(env, format);
+    if (cformat == NULL) {
+        return 0;
+    }
+
+    struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
+
+    // This consumes the old reader pointer
+    struct C2paReader *newReader = c2pa_reader_with_stream(reader, cformat, stream);
+    release_cstring(env, format, cformat);
+
+    if (newReader == NULL) {
+        throw_c2pa_exception(env, "Failed to configure reader with stream");
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)newReader;
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring format, jlong streamPtr, jlong fragmentPtr) {
+    if (readerPtr == 0 || format == NULL || streamPtr == 0 || fragmentPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Reader, format, stream, and fragment cannot be null");
+        return 0;
+    }
+
+    struct C2paReader *reader = (struct C2paReader*)(uintptr_t)readerPtr;
+    const char *cformat = jstring_to_cstring(env, format);
+    if (cformat == NULL) {
+        return 0;
+    }
+
+    struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
+    struct C2paStream *fragment = (struct C2paStream*)(uintptr_t)fragmentPtr;
+
+    // This consumes the old reader pointer
+    struct C2paReader *newReader = c2pa_reader_with_fragment(reader, cformat, stream, fragment);
+    release_cstring(env, format, cformat);
+
+    if (newReader == NULL) {
+        throw_c2pa_exception(env, "Failed to configure reader with fragment");
+        return 0;
+    }
+
+    return (jlong)(uintptr_t)newReader;
 }
 
 // Ed25519 signing

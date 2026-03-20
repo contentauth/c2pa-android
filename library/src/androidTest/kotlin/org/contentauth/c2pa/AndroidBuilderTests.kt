@@ -1,4 +1,4 @@
-/* 
+/*
 This file is licensed to you under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0) or the MIT license
 (http://opensource.org/licenses/MIT), at your option.
@@ -9,6 +9,7 @@ ANY KIND, either express or implied. See the LICENSE-MIT and LICENSE-APACHE
 files for the specific language governing permissions and limitations under
 each license.
 */
+
 package org.contentauth.c2pa
 
 import android.content.Context
@@ -84,5 +85,53 @@ class AndroidBuilderTests : BuilderTests() {
     fun runTestJsonRoundTrip() = runBlocking {
         val result = testJsonRoundTrip()
         assertTrue(result.success, "JSON Round-trip test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderFromContextWithSettings() = runBlocking {
+        val result = testBuilderFromContextWithSettings()
+        assertTrue(result.success, "Builder from Context with Settings test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderFromJsonWithSettings() = runBlocking {
+        val result = testBuilderFromJsonWithSettings()
+        assertTrue(result.success, "Builder fromJson with Settings test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderWithArchive() = runBlocking {
+        val result = testBuilderWithArchive()
+        assertTrue(result.success, "Builder withArchive test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestReaderFromContext() = runBlocking {
+        val result = testReaderFromContext()
+        assertTrue(result.success, "Reader fromContext test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderSetIntent() = runBlocking {
+        val result = testBuilderSetIntent()
+        assertTrue(result.success, "Builder Set Intent test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderAddAction() = runBlocking {
+        val result = testBuilderAddAction()
+        assertTrue(result.success, "Builder Add Action test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSettingsSetValue() = runBlocking {
+        val result = testSettingsSetValue()
+        assertTrue(result.success, "C2PASettings setValue test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderIntentEditAndUpdate() = runBlocking {
+        val result = testBuilderIntentEditAndUpdate()
+        assertTrue(result.success, "Builder Intent Edit and Update test failed: ${result.message}")
     }
 }
