@@ -12,7 +12,7 @@ C2PA Android offers:
 - Hardware security integration with Android Keystore and StrongBox
 - Signing server for development and testing of remote signing workflows
 
-## Quick Start
+## Quick start
 
 **Prerequisites:**
 - JDK 17 installed and `JAVA_HOME` set
@@ -33,7 +33,7 @@ make library
 make run-test-app
 ```
 
-## Repository Structure
+## Repository structure
 
 - `/library` - Android library module with C2PA Kotlin APIs and JNI bindings
   - `/src/main/kotlin/org/contentauth/c2pa/` - Kotlin API classes:
@@ -67,7 +67,7 @@ make run-test-app
 - Android NDK (any recent version - see note below)
 - Make
 
-#### NDK Version
+#### NDK version
 
 The project will use your default NDK version. If you need to use a specific NDK version, add it to your `local.properties` file:
 
@@ -79,14 +79,18 @@ ndk.version=29.0.13599879
 
 ### Android (Gradle)
 
-The library is available from two sources: **JitPack** (recommended for simplicity) and **GitHub Packages**.
+The library is available from two sources:
 
-#### Option 1: JitPack (Recommended)
+- JitPack (recommended for simplicity) 
+- GitHub Packages
 
-Add JitPack to your repositories and include the dependency:
+#### Installing using JitPack
+
+Add JitPack to your repositories and include the dependency in your Gradle files:
+
+In your `settings.gradle` or root `build.gradle`:
 
 ```gradle
-// In your settings.gradle or root build.gradle
 dependencyResolutionManagement {
     repositories {
         google()
@@ -94,19 +98,23 @@ dependencyResolutionManagement {
         maven { url 'https://jitpack.io' }
     }
 }
+```
 
-// In your app's build.gradle
+In your app's `build.gradle`:
+
+```gradle
 dependencies {
     implementation 'com.github.contentauth:c2pa-android:1.0.0'
 }
 ```
 
-#### Option 2: GitHub Packages
+#### Installing using GitHub packages
 
 GitHub Packages requires authentication. Add the repository and dependency:
 
+In your root `build.gradle`:
+
 ```gradle
-// In your root build.gradle
 allprojects {
     repositories {
         google()
@@ -121,14 +129,17 @@ allprojects {
         }
     }
 }
+```
 
-// In your app's build.gradle
+In your app's `build.gradle`:
+
+```gradle
 dependencies {
     implementation "org.contentauth:c2pa:1.0.0"
 }
 ```
 
-#### Development Workflow for Android
+#### Development workflow for Android
 
 For local development without using a released version:
 
@@ -146,9 +157,9 @@ dependencies {
 
 ## Usage
 
-### Android Examples
+### Android examples
 
-#### Reading and Verifying Manifests
+#### Reading and verifying manifests
 
 ```kotlin
 import org.contentauth.c2pa.*
@@ -173,7 +184,7 @@ try {
 }
 ```
 
-#### Signing Content
+#### Signing content
 
 ```kotlin
 // Sign with built-in signer
@@ -203,7 +214,7 @@ try {
 }
 ```
 
-#### Using Callback Signers
+#### Using callback signers
 
 ```kotlin
 // Create a callback signer for custom signing implementations
@@ -232,7 +243,7 @@ try {
 }
 ```
 
-#### Using Hardware Security (StrongBox)
+#### Using hardware security (StrongBox)
 
 **Prerequisites**: This example requires a signing server for certificate enrollment. Start the server with:
 ```bash
@@ -325,7 +336,7 @@ try {
 }
 ```
 
-#### Using Web Service Signing
+#### Using web service signing
 
 ```kotlin
 import org.contentauth.c2pa.*
@@ -359,44 +370,7 @@ try {
 }
 ```
 
-## Building from Source
-
-1. Clone this repository:
-
-   ```bash
-   git clone https://github.com/contentauth/c2pa-android.git
-   cd c2pa-android
-   ```
-
-2. Set up the required dependencies:
-   - Set up JDK 17
-   - Set up Android SDK
-   - Set up environment variables (add to your shell profile):
-
-     ```bash
-     export JAVA_HOME=$(/usr/libexec/java_home -v 17)
-     export ANDROID_HOME=$HOME/Library/Android/sdk
-     ```
-
-3. (Optional) Update C2PA version:
-   - Edit `library/gradle.properties` and change `c2paVersion`
-   - See available versions at https://github.com/contentauth/c2pa-rs/releases
-
-4. Build the library:
-
-   ```bash
-   # Complete build: setup, download binaries, and build AAR
-   make library
-   ```
-
-5. Check built outputs:
-
-   ```bash
-   # Android Library AAR
-   ls -la library/build/outputs/aar/
-   ```
-
-## Makefile Targets
+## Makefile targets
 
 The project includes a comprehensive Makefile with the following targets:
 
@@ -434,11 +408,11 @@ The project includes a comprehensive Makefile with the following targets:
 **Publishing:**
 - `publish` - Publish library to GitHub packages
 
-## Continuous Integration & Releases
+## Continuous integration & releases
 
 This project uses GitHub Actions for continuous integration and release management:
 
-### Release Process
+### Release process
 
 The release process is automated through a single workflow:
 
@@ -455,29 +429,9 @@ The release process is automated through a single workflow:
 
 ## Applications
 
-### Test App (`/test-app`)
+The comprehensive test application runs all C2PA functionality tests with a visual UI.  See [Project contributions](docs/project-contributions.md) for details.
 
-A comprehensive test application that runs all C2PA functionality tests with a visual UI:
-- Uses shared test modules from `/test-shared`:
-  - `CoreTests` - Library version, error handling, manifest reading
-  - `StreamTests` - File, memory, and byte array stream operations
-  - `BuilderTests` - Builder API with ingredients and resources
-  - `SignerTests` - All signing methods including hardware security
-  - `WebServiceTests` - Remote signing integration
-- Visual test results with success/failure indicators and detailed logs
-- Tests all signing modes: default (bundled certificates), Android Keystore, hardware (StrongBox), custom certificates, and remote signing
-- Includes 30+ tests covering the complete C2PA API surface
-
-**Running the test app:**
-```bash
-# Build and run on connected device/emulator
-make run-test-app
-
-# Or open in Android Studio
-# Open the test-app module and run it
-```
-
-### Example App (`/example-app`)
+### Example app (`/example-app`)
 
 A real-world demonstration app showcasing C2PA integration in a camera application:
 - Camera capture with C2PA manifest embedding
@@ -526,9 +480,12 @@ or
 make signing-server-run
 ```
 
-## API Features
+## API features
 
-### Core Classes
+> [!NOTE]
+> For full details on the API, see the [API reference documentation](https://contentauth.github.io/c2pa-android/c2pa-android/org.contentauth.c2pa/index.html)
+
+### Core classes
 
 - **C2PA** - Main entry point for static operations (reading files, signing)
 - **Reader** - For reading and validating C2PA manifests from streams
@@ -540,14 +497,14 @@ make signing-server-run
 - **ByteArrayStream** - In-memory byte array stream implementation
 - **DataStream** - Stream wrapper for byte arrays
 
-### Signing Classes
+### Signing classes
 
 - **StrongBoxSigner** - Hardware-backed signing with StrongBox Keymaster
 - **KeyStoreSigner** - Android Keystore-backed signing
 - **WebServiceSigner** - Remote signing via web service
 - **CertificateManager** - Certificate generation, CSR creation, and key management
 
-### Signing Options
+### Signing options
 
 1. **Direct Signing** - Using private key and certificate PEM strings (`Signer.fromKeys()`)
 2. **Callback Signing** - Custom signing implementations for HSM, cloud KMS, etc. (`Signer.withCallback()`)
@@ -566,13 +523,15 @@ make signing-server-run
 
 The project includes comprehensive instrumented tests that validate the C2PA functionality through the JNI bridge:
 
-### Instrumented Tests
+### Instrumented tests
+
 Run instrumented tests on a connected device or emulator:
 ```bash
 make tests-with-server
 ```
 
-### Test Coverage
+### Test coverage
+
 Generate test coverage reports:
 ```bash
 make coverage
@@ -584,7 +543,7 @@ Coverage reports will be available at:
 
 The project uses JaCoCo for coverage reporting. Coverage reports are generated during CI builds and stored as artifacts.
 
-## JNI Implementation
+## JNI implementation
 
 The Android library uses JNI (Java Native Interface):
 
@@ -594,4 +553,4 @@ The Android library uses JNI (Java Native Interface):
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0 and MIT - see the LICENSE-APACHE and LICENSE-MIT files for details.
+This project is licensed under the Apache License, Version 2.0 and MIT License. See the [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) files for details.
