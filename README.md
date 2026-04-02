@@ -1,10 +1,8 @@
-# C2PA Android
+# C2PA Android library
 
-This project provides Android bindings for the [C2PA](https://c2pa.org/) (Coalition for Content Provenance and Authenticity) libraries. It wraps the C2PA Rust implementation ([c2pa-rs](https://github.com/contentauth/c2pa-rs)) using its C API bindings to provide native Android support via an AAR library.
+This project provides Android bindings for the Content Authenticity (CAI). It wraps the [C2PA Rust implementation](https://github.com/contentauth/c2pa-rs) using its C API bindings to provide native Android support via an AAR library.
 
-## Overview
-
-C2PA Android offers:
+It offers:
 
 - Android support via AAR library with Kotlin APIs
 - Comprehensive support for C2PA manifest reading, validation, and creation
@@ -12,15 +10,30 @@ C2PA Android offers:
 - Hardware security integration with Android Keystore and StrongBox
 - Signing server for development and testing of remote signing workflows
 
+##  Prerequisites
+
+- JDK 17 installed and `JAVA_HOME` set.
+- Android SDK installed with `ANDROID_HOME` environment variable set.
+    - Android API level 28+ (Android 9.0+)
+- Android NDK installed (configure version in `local.properties` if needed).
+- `Make` must be available on your system
+- Connected Android device or emulator (for running test app).
+
+Recommended: 
+
+- Android Studio Hedgehog (2023.1.1) or newer
+
+### NDK version
+
+The build uses your default NDK version. To pin a specific NDK version, add it to your `local.properties` file:
+
+```properties
+ndk.version=29.0.13599879
+```
+
 ## Quick start
 
-**Prerequisites:**
-
-- JDK 17 installed and `JAVA_HOME` set
-- Android SDK installed with `ANDROID_HOME` environment variable set
-- Android NDK installed (configure version in `local.properties` if needed)
-- Make available on your system
-- Connected Android device or emulator (for running test app)
+Once you've installed or configured all the prerequisites, build the library and run the test app as follows:
 
 ```bash
 # Clone the repository
@@ -53,28 +66,14 @@ make run-test-app
 - `/signing-server` - Ktor-based signing server for remote signing workflows
 - `/Makefile` - Build system commands for downloading binaries and building
 
-## Requirements
+### JNI implementation
 
-### Android
+The Android library uses JNI (Java Native Interface).
 
-- Android API level 28+ (Android 9.0+)
-- Android Studio Hedgehog (2023.1.1) or newer
-- JDK 17
+**Native layer**
 
-### Development
-
-- JDK 17 (for Android builds)
-- Android SDK (for Android builds)
-- Android NDK (any recent version - see note below)
-- Make
-
-#### NDK version
-
-The build uses your default NDK version. To pin a specific NDK version, add it to your `local.properties` file:
-
-```properties
-ndk.version=29.0.13599879
-```
+- C API headers: `library/src/main/jni/c2pa.h`
+- JNI implementation: `library/src/main/jni/c2pa_jni.c`
 
 ## Installation
 
@@ -82,8 +81,8 @@ ndk.version=29.0.13599879
 
 The library is available from two sources:
 
-- JitPack (recommended for simplicity)
-- GitHub Packages
+- [JitPack](#installing-from-jitpack) (recommended for simplicity)
+- [GitHub Packages](#installing-from-github-packages)
 
 #### Installing from JitPack
 
@@ -140,7 +139,7 @@ dependencies {
 }
 ```
 
-#### Development workflow for Android
+#### Development workflow
 
 For local development without using a released version:
 
@@ -156,11 +155,9 @@ dependencies {
 }
 ```
 
-## Usage
+## Usage examples
 
-### Android examples
-
-#### Reading and verifying manifests
+### Reading and verifying manifests
 
 ```kotlin
 import org.contentauth.c2pa.*
@@ -185,7 +182,7 @@ try {
 }
 ```
 
-#### Signing content
+### Signing content
 
 ```kotlin
 // Sign with built-in signer
@@ -215,7 +212,7 @@ try {
 }
 ```
 
-#### Using callback signers
+### Using callback signers
 
 ```kotlin
 // Create a callback signer for custom signing implementations
@@ -244,9 +241,10 @@ try {
 }
 ```
 
-#### Using StrongBox hardware security
+### Using StrongBox hardware security
 
 **Prerequisites:** This example requires a signing server for certificate enrollment. Start the server with:
+
 ```bash
 make signing-server-start
 ```
@@ -337,7 +335,7 @@ try {
 }
 ```
 
-#### Using web service signing
+### Using web service signing
 
 ```kotlin
 import org.contentauth.c2pa.*
@@ -388,7 +386,8 @@ The project includes a Makefile with the following targets:
 - `tests-with-server` - Run all tests with automatic signing server management (recommended)
 - `coverage` - Generate test coverage report
 
-**Note:** Hardware and remote signing tests require the signing server. Use `make tests-with-server` for complete test coverage.
+> [!NOTE]
+> Hardware and remote signing tests require the signing server. Use `make tests-with-server` for complete test coverage.
 
 **Code quality:**
 
@@ -415,28 +414,9 @@ The project includes a Makefile with the following targets:
 
 - `publish` - Publish the library to GitHub Packages
 
-## Continuous integration and releases
-
-This project uses GitHub Actions for continuous integration and release management.
-
-### Release process
-
-The release process is automated through a single workflow:
-
-1. **Start a release:**
-   - Trigger the **Release** workflow from the Actions tab.
-   - Enter the version number (for example, `v1.0.0`).
-
-2. **Automated build and release:**
-   - Download pre-built C2PA binaries.
-   - Build the Android AAR package.
-   - Create a GitHub release with the specified version.
-   - Attach the Android AAR artifact.
-   - Publish documentation for integration.
-
 ## Applications
 
-The test application runs C2PA functionality tests with a visual UI. See [Project contributions](docs/project-contributions.md) for details.
+The test application runs C2PA functionality tests with a visual UI. See [Project contributions - Test app](docs/project-contributions.md#test-app) for details.
 
 ### Example app
 
@@ -531,39 +511,6 @@ make signing-server-run
      - StrongBox hardware support (falls back to TEE if unavailable)
      - External signing server or CA for certificate enrollment
      - Only ES256 (P-256) is supported for StrongBox
-
-## Testing
-
-Instrumented tests validate C2PA functionality through the JNI bridge:
-
-### Instrumented tests
-
-Run instrumented tests on a connected device or emulator:
-```bash
-make tests-with-server
-```
-
-### Test coverage
-
-Generate test coverage reports:
-```bash
-make coverage
-```
-
-Coverage reports will be available at:
-- HTML: `library/build/reports/jacoco/jacocoInstrumentedTestReport/html/index.html`
-- XML: `library/build/reports/jacoco/jacocoInstrumentedTestReport/jacocoInstrumentedTestReport.xml`
-
-The project uses JaCoCo for coverage reporting. Coverage reports are generated during CI builds and stored as artifacts.
-
-## JNI implementation
-
-The Android library uses JNI (Java Native Interface).
-
-**Native layer**
-
-- C API headers: `library/src/main/jni/c2pa.h`
-- JNI implementation: `library/src/main/jni/c2pa_jni.c`
 
 ## License
 
