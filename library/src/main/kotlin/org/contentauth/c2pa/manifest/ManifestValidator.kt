@@ -55,6 +55,7 @@ object ManifestValidator {
         "c2pa.data",
         "c2pa.databoxes",
         "c2pa.font.info",
+        "c2pa.training-mining",
     )
 
     /**
@@ -78,11 +79,6 @@ object ManifestValidator {
                 "claim_version is ${manifest.claimVersion}, but C2PA 2.x recommends version $RECOMMENDED_CLAIM_VERSION. " +
                     "Version 1 claims use legacy assertion formats and do not support created/gathered assertion separation.",
             )
-        }
-
-        // Check for required fields
-        if (manifest.title.isBlank()) {
-            errors.add("Manifest title is required")
         }
 
         if (manifest.claimGeneratorInfo.isEmpty()) {
@@ -166,6 +162,7 @@ object ManifestValidator {
         "c2pa.data" -> "Use c2pa.embedded-data instead."
         "c2pa.databoxes" -> "Data box stores are deprecated in C2PA 2.x."
         "c2pa.font.info" -> "Use font.info instead."
+        "c2pa.training-mining" -> "Use cawg.training-mining instead."
         else -> "Check the C2PA 2.3 specification for current alternatives."
     }
 

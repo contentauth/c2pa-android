@@ -639,6 +639,7 @@ abstract class ManifestTests : TestBase() {
     /**
      * Tests all assertion types serialize and deserialize correctly.
      */
+    @Suppress("DEPRECATION")
     suspend fun testAllAssertionTypes(): TestResult = withContext(Dispatchers.IO) {
         runTest("All Assertion Types") {
             try {
@@ -1376,22 +1377,7 @@ abstract class ManifestTests : TestBase() {
                     )
                 }
 
-                // Test 2: Empty title should produce error
-                val emptyTitleManifest = ManifestDefinition(
-                    title = "",
-                    claimGeneratorInfo = listOf(ClaimGeneratorInfo(name = "test")),
-                )
-
-                val emptyTitleResult = ManifestValidator.validate(emptyTitleManifest)
-                if (!emptyTitleResult.hasErrors()) {
-                    return@runTest TestResult(
-                        "Manifest Validator",
-                        false,
-                        "Empty title should produce an error",
-                    )
-                }
-
-                // Test 3: Missing claim_generator_info should produce error
+                // Test 2: Missing claim_generator_info should produce error
                 val noClaimGenManifest = ManifestDefinition(
                     title = "Test",
                     claimGeneratorInfo = emptyList(),

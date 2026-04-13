@@ -87,6 +87,10 @@ sealed class AssertionDefinition {
      *
      * @property entries The training/mining permission entries.
      */
+    @Deprecated(
+        message = "c2pa.training-mining is deprecated. Use CawgTrainingMining (cawg.training-mining) instead.",
+        replaceWith = ReplaceWith("CawgTrainingMining"),
+    )
     data class TrainingMining(
         val entries: List<TrainingMiningEntry>,
     ) : AssertionDefinition()
@@ -121,6 +125,7 @@ sealed class AssertionDefinition {
      * placed in `created_assertions` or `gathered_assertions` based on the
      * `builder.created_assertion_labels` setting.
      */
+    @Suppress("DEPRECATION")
     fun baseLabel(): String = when (this) {
         is Actions -> "c2pa.actions"
         is CreativeWork -> "stds.schema-org.CreativeWork"
@@ -158,6 +163,11 @@ sealed class AssertionDefinition {
         /**
          * Creates a training/mining assertion (C2PA format).
          */
+        @Deprecated(
+            message = "c2pa.training-mining is deprecated. Use cawgTrainingMining instead.",
+            replaceWith = ReplaceWith("cawgTrainingMining(entries)"),
+        )
+        @Suppress("DEPRECATION")
         fun trainingMining(entries: List<TrainingMiningEntry>) = TrainingMining(entries)
 
         /**
@@ -210,6 +220,7 @@ data class CawgTrainingMiningEntry(
 /**
  * Custom serializer for AssertionDefinition that handles the label/data structure.
  */
+@Suppress("DEPRECATION")
 internal object AssertionDefinitionSerializer : KSerializer<AssertionDefinition> {
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor("AssertionDefinition")
 

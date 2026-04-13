@@ -25,12 +25,13 @@ import org.contentauth.c2pa.C2PAJson
  *
  * ## Created vs Gathered Assertions
  *
- * The C2PA 2.3 specification distinguishes between created assertions (attributed to the signer)
- * and gathered assertions (from other workflow components, not attributed to the signer).
+ * The C2PA 2.3 specification distinguishes between created assertions (attributed to the
+ * claim generator) and gathered assertions (from other workflow components, not attributed
+ * to the claim generator).
  *
  * All assertions are placed in the [assertions] list. The underlying c2pa-rs SDK uses the
  * `created_assertion_labels` setting to determine which assertions are "created" (attributed
- * to the signer) vs "gathered". By default, [org.contentauth.c2pa.Builder.fromJson] configures
+ * to the claim generator) vs "gathered". By default, [org.contentauth.c2pa.Builder.fromJson] configures
  * common labels (actions, thumbnails, ingredients) as created assertions. Assertions with labels
  * NOT in that list are automatically treated as gathered.
  *
@@ -118,7 +119,7 @@ data class ManifestDefinition(
      *
      * This can be used to build a custom `created_assertion_labels` setting for the
      * [org.contentauth.c2pa.Builder] if you need fine-grained control over which
-     * assertions are attributed to the signer.
+     * assertions are attributed to the claim generator.
      *
      * @return A list of unique assertion base labels.
      */
