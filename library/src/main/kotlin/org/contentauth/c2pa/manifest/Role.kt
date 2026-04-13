@@ -18,6 +18,10 @@ import kotlinx.serialization.Serializable
 /**
  * Defines the role of a region within an asset.
  *
+ * Note: The `role` field on regions is deprecated since C2PA v2.1. Use the `type` field
+ * with IPTC image region type URIs instead. These values are retained for backward
+ * compatibility when reading older manifests.
+ *
  * @see RegionOfInterest
  */
 @Serializable
@@ -25,14 +29,6 @@ enum class Role {
     /** A general area of interest within the asset. */
     @SerialName("c2pa.areaOfInterest")
     AREA_OF_INTEREST,
-
-    /** A region that has been edited or modified. */
-    @SerialName("c2pa.edited")
-    EDITED,
-
-    /** A region where content was placed from another source. */
-    @SerialName("c2pa.placed")
-    PLACED,
 
     /** A region that has been cropped. */
     @SerialName("c2pa.cropped")
@@ -42,7 +38,27 @@ enum class Role {
     @SerialName("c2pa.deleted")
     DELETED,
 
-    /** A region where invisible watermark was added. */
-    @SerialName("c2pa.invisible")
-    INVISIBLE,
+    /** A region that has been edited or modified. */
+    @SerialName("c2pa.edited")
+    EDITED,
+
+    /** A region where content was placed from another source. */
+    @SerialName("c2pa.placed")
+    PLACED,
+
+    /** A region that has been redacted. */
+    @SerialName("c2pa.redacted")
+    REDACTED,
+
+    /** A region that has been styled. */
+    @SerialName("c2pa.styled")
+    STYLED,
+
+    /** The subject area of the asset. */
+    @SerialName("c2pa.subjectArea")
+    SUBJECT_AREA,
+
+    /** A region where a watermark was applied. */
+    @SerialName("c2pa.watermarked")
+    WATERMARKED,
 }

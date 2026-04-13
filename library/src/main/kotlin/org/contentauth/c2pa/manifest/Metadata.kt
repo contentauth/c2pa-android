@@ -28,13 +28,13 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class Metadata(
-    @SerialName("dataSource")
+    @SerialName("data_source")
     val dataSource: DataSource? = null,
     val reference: String? = null,
-    @SerialName("regionOfInterest")
+    @SerialName("region_of_interest")
     val regionOfInterest: List<RegionOfInterest>? = null,
-    @SerialName("reviewRatings")
+    @SerialName("review_ratings")
     val reviewRatings: List<ReviewRating>? = null,
-    @SerialName("dateTime")
+    @SerialName("date_time")
     val dateTime: String? = null,
 )

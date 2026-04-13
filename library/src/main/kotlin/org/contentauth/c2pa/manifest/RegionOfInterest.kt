@@ -100,22 +100,3 @@ data class RegionOfInterest(
         )
     }
 }
-
-private fun ImageRegionType.toTypeString(): String = when (this) {
-    ImageRegionType.HUMAN -> "http://cv.iptc.org/newscodes/imageregiontype/human"
-    ImageRegionType.FACE -> "http://cv.iptc.org/newscodes/imageregiontype/face"
-    ImageRegionType.HEADSHOT -> "http://cv.iptc.org/newscodes/imageregiontype/headshot"
-    ImageRegionType.BODY_PART -> "http://cv.iptc.org/newscodes/imageregiontype/bodyPart"
-    ImageRegionType.ANIMAL -> "http://cv.iptc.org/newscodes/imageregiontype/animal"
-    ImageRegionType.PLANT -> "http://cv.iptc.org/newscodes/imageregiontype/plant"
-    ImageRegionType.PRODUCT -> "http://cv.iptc.org/newscodes/imageregiontype/product"
-    ImageRegionType.BUILDING -> "http://cv.iptc.org/newscodes/imageregiontype/building"
-    ImageRegionType.OBJECT -> "http://cv.iptc.org/newscodes/imageregiontype/object"
-    ImageRegionType.VEHICLE -> "http://cv.iptc.org/newscodes/imageregiontype/vehicle"
-    ImageRegionType.EVENT -> "http://cv.iptc.org/newscodes/imageregiontype/event"
-    ImageRegionType.ARTWORK -> "http://cv.iptc.org/newscodes/imageregiontype/artwork"
-    ImageRegionType.LOGO -> "http://cv.iptc.org/newscodes/imageregiontype/logo"
-    ImageRegionType.TEXT -> "http://cv.iptc.org/newscodes/imageregiontype/text"
-    ImageRegionType.VISIBLE_CODE -> "http://cv.iptc.org/newscodes/imageregiontype/visibleCode"
-    ImageRegionType.GEO_FEATURE -> "http://cv.iptc.org/newscodes/imageregiontype/geoFeature"
-}

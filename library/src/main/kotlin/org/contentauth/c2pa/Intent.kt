@@ -159,4 +159,44 @@ enum class DigitalSourceType {
             COMPOSITE_CAPTURE -> 17
             COMPOSITE_SYNTHETIC -> 18
         }
+
+    /**
+     * Converts this digital source type to its corresponding IPTC URL.
+     *
+     * @return The IPTC URL representing this digital source type.
+     */
+    fun toIptcUrl(): String =
+        when (this) {
+            EMPTY -> "http://c2pa.org/digitalsourcetype/empty"
+            TRAINED_ALGORITHMIC_DATA -> "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicData"
+            DIGITAL_CAPTURE -> "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+            COMPUTATIONAL_CAPTURE -> "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture"
+            NEGATIVE_FILM -> "http://cv.iptc.org/newscodes/digitalsourcetype/negativeFilm"
+            POSITIVE_FILM -> "http://cv.iptc.org/newscodes/digitalsourcetype/positiveFilm"
+            PRINT -> "http://cv.iptc.org/newscodes/digitalsourcetype/print"
+            HUMAN_EDITS -> "http://cv.iptc.org/newscodes/digitalsourcetype/humanEdits"
+            COMPOSITE_WITH_TRAINED_ALGORITHMIC_MEDIA -> "http://cv.iptc.org/newscodes/digitalsourcetype/compositeWithTrainedAlgorithmicMedia"
+            ALGORITHMICALLY_ENHANCED -> "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicallyEnhanced"
+            DIGITAL_CREATION -> "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCreation"
+            DATA_DRIVEN_MEDIA -> "http://cv.iptc.org/newscodes/digitalsourcetype/dataDrivenMedia"
+            TRAINED_ALGORITHMIC_MEDIA -> "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"
+            ALGORITHMIC_MEDIA -> "http://cv.iptc.org/newscodes/digitalsourcetype/algorithmicMedia"
+            SCREEN_CAPTURE -> "http://cv.iptc.org/newscodes/digitalsourcetype/screenCapture"
+            VIRTUAL_RECORDING -> "http://cv.iptc.org/newscodes/digitalsourcetype/virtualRecording"
+            COMPOSITE -> "http://cv.iptc.org/newscodes/digitalsourcetype/composite"
+            COMPOSITE_CAPTURE -> "http://cv.iptc.org/newscodes/digitalsourcetype/compositeCapture"
+            COMPOSITE_SYNTHETIC -> "http://cv.iptc.org/newscodes/digitalsourcetype/compositeSynthetic"
+        }
+
+    companion object {
+        private val urlToType = entries.associateBy { it.toIptcUrl() }
+
+        /**
+         * Parses an IPTC URL to its corresponding DigitalSourceType.
+         *
+         * @param url The IPTC URL to parse.
+         * @return The corresponding DigitalSourceType, or null if not recognized.
+         */
+        fun fromIptcUrl(url: String): DigitalSourceType? = urlToType[url]
+    }
 }

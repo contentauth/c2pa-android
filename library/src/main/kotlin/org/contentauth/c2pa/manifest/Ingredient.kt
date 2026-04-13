@@ -70,6 +70,12 @@ data class Ingredient(
     val provenance: String? = null,
     @SerialName("informational_uri")
     val informationalUri: String? = null,
+    @SerialName("claim_signature")
+    val claimSignature: HashedUri? = null,
+    @SerialName("soft_bindings_matched")
+    val softBindingsMatched: Boolean? = null,
+    @SerialName("soft_binding_algorithms_matched")
+    val softBindingAlgorithmsMatched: List<String>? = null,
 ) {
     companion object {
         /**
@@ -100,6 +106,24 @@ data class Ingredient(
             title = title,
             format = format,
             relationship = Relationship.COMPONENT_OF,
+        )
+
+        /**
+         * Creates an inputTo ingredient with the specified title.
+         *
+         * Use this relationship when an asset is derived from or influenced by another asset,
+         * but the ingredient is not directly embedded or used as a component.
+         *
+         * @param title The title of the input ingredient.
+         * @param format The MIME type of the ingredient.
+         */
+        fun inputTo(
+            title: String,
+            format: String? = null,
+        ) = Ingredient(
+            title = title,
+            format = format,
+            relationship = Relationship.INPUT_TO,
         )
     }
 }
