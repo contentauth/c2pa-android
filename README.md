@@ -1,10 +1,8 @@
-# C2PA Android
+# C2PA Android library
 
-This project provides Android bindings for the [C2PA](https://c2pa.org/) (Coalition for Content Provenance and Authenticity) libraries. It wraps the C2PA Rust implementation ([c2pa-rs](https://github.com/contentauth/c2pa-rs)) using its C API bindings to provide native Android support via an AAR library.
+This project provides Android bindings for the Content Authenticity (CAI). It wraps the [C2PA Rust implementation](https://github.com/contentauth/c2pa-rs) using its C API bindings to provide native Android support via an AAR library.
 
-## Overview
-
-C2PA Android offers:
+It offers:
 
 - Android support via AAR library with Kotlin APIs
 - Comprehensive support for C2PA manifest reading, validation, and creation
@@ -12,14 +10,30 @@ C2PA Android offers:
 - Hardware security integration with Android Keystore and StrongBox
 - Signing server for development and testing of remote signing workflows
 
+##  Prerequisites
+
+- JDK 17 installed and `JAVA_HOME` set.
+- Android SDK installed with `ANDROID_HOME` environment variable set.
+    - Android API level 28+ (Android 9.0+)
+- Android NDK installed (configure version in `local.properties` if needed).
+- `Make` must be available on your system
+- Connected Android device or emulator (for running test app).
+
+Recommended: 
+
+- Android Studio Hedgehog (2023.1.1) or newer
+
+### NDK version
+
+The build uses your default NDK version. To pin a specific NDK version, add it to your `local.properties` file:
+
+```properties
+ndk.version=29.0.13599879
+```
+
 ## Quick start
 
-**Prerequisites:**
-- JDK 17 installed and `JAVA_HOME` set
-- Android SDK installed with `ANDROID_HOME` environment variable set
-- Android NDK installed (configure version in `local.properties` if needed)
-- Make available on your system
-- Connected Android device or emulator (for running test app)
+Once you've installed or configured all the prerequisites, build the library and run the test app as follows:
 
 ```bash
 # Clone the repository
@@ -44,7 +58,7 @@ make run-test-app
     - `KeyStoreSigner.kt` - Android Keystore signing
     - `Signer.kt`, `Builder.kt`, `Reader.kt` - Core C2PA API classes
     - `Stream.kt`, `FileStream.kt`, `MemoryStream.kt` - Stream implementations
-  - `/src/main/jni` - JNI C implementation (c2pa_jni.c) and C2PA headers
+  - `/src/main/jni` - JNI C implementation (`c2pa_jni.c`) and C2PA headers
   - `/src/androidTest` - Instrumented tests for the library
 - `/test-shared` - Shared test modules used by both library instrumented tests and test-app
 - `/test-app` - Test application with test UI for running all C2PA tests
@@ -52,39 +66,25 @@ make run-test-app
 - `/signing-server` - Ktor-based signing server for remote signing workflows
 - `/Makefile` - Build system commands for downloading binaries and building
 
-## Requirements
+### JNI implementation
 
-### Android
+The Android library uses JNI (Java Native Interface).
 
-- Android API level 28+ (Android 9.0+)
-- Android Studio Hedgehog (2023.1.1) or newer
-- JDK 17
+**Native layer**
 
-### Development
-
-- JDK 17 (for Android builds)
-- Android SDK (for Android builds)
-- Android NDK (any recent version - see note below)
-- Make
-
-#### NDK version
-
-The project will use your default NDK version. If you need to use a specific NDK version, add it to your `local.properties` file:
-
-```properties
-ndk.version=29.0.13599879
-```
+- C API headers: `library/src/main/jni/c2pa.h`
+- JNI implementation: `library/src/main/jni/c2pa_jni.c`
 
 ## Installation
 
-### Android (Gradle)
+### Android with Gradle
 
 The library is available from two sources:
 
-- JitPack (recommended for simplicity) 
-- GitHub Packages
+- [JitPack](#installing-from-jitpack) (recommended for simplicity)
+- [GitHub Packages](#installing-from-github-packages)
 
-#### Installing using JitPack
+#### Installing from JitPack
 
 Add JitPack to your repositories and include the dependency in your Gradle files:
 
@@ -108,7 +108,7 @@ dependencies {
 }
 ```
 
-#### Installing using GitHub packages
+#### Installing from GitHub Packages
 
 GitHub Packages requires authentication. Add the repository and dependency:
 
@@ -139,7 +139,7 @@ dependencies {
 }
 ```
 
-#### Development workflow for Android
+#### Development workflow
 
 For local development without using a released version:
 
@@ -150,16 +150,14 @@ For local development without using a released version:
 ```gradle
 // In app/build.gradle
 dependencies {
-    implementation files('path/to/c2pa-release.aar')    
+    implementation files('path/to/c2pa-release.aar')
     implementation 'net.java.dev.jna:jna:5.17.0@aar'
 }
 ```
 
-## Usage
+## Usage examples
 
-### Android examples
-
-#### Reading and verifying manifests
+### Reading and verifying manifests
 
 ```kotlin
 import org.contentauth.c2pa.*
@@ -184,7 +182,7 @@ try {
 }
 ```
 
-#### Signing content
+### Signing content
 
 ```kotlin
 // Sign with built-in signer
@@ -214,7 +212,7 @@ try {
 }
 ```
 
-#### Using callback signers
+### Using callback signers
 
 ```kotlin
 // Create a callback signer for custom signing implementations
@@ -243,9 +241,10 @@ try {
 }
 ```
 
-#### Using hardware security (StrongBox)
+### Using StrongBox hardware security
 
-**Prerequisites**: This example requires a signing server for certificate enrollment. Start the server with:
+**Prerequisites:** This example requires a signing server for certificate enrollment. Start the server with:
+
 ```bash
 make signing-server-start
 ```
@@ -336,7 +335,7 @@ try {
 }
 ```
 
-#### Using web service signing
+### Using web service signing
 
 ```kotlin
 import org.contentauth.c2pa.*
@@ -372,86 +371,78 @@ try {
 
 ## Makefile targets
 
-The project includes a comprehensive Makefile with the following targets:
+The project includes a Makefile with the following targets:
 
-**Library Build:**
+**Library build:**
+
 - `setup` - Create necessary directories
 - `download-binaries` - Download pre-built binaries from GitHub releases
 - `library` - Complete library build: setup, download, and build AAR
 - `clean` - Remove build artifacts
 
 **Testing:**
-- `tests` - Run library instrumented tests (basic tests only, requires device/emulator)
-- `tests-with-server` - Run all tests with automatic signing server management (RECOMMENDED)
+
+- `tests` - Run library instrumented tests (basic tests only; requires a device or emulator)
+- `tests-with-server` - Run all tests with automatic signing server management (recommended)
 - `coverage` - Generate test coverage report
 
-**Note**: Hardware and remote signing tests require the signing server. Use `make tests-with-server` for complete test coverage.
+> [!NOTE]
+> Hardware and remote signing tests require the signing server. Use `make tests-with-server` for complete test coverage.
 
-**Code Quality:**
+**Code quality:**
+
 - `lint` - Run Android lint checks
 - `format` - Format all Kotlin files with ktlint
 
-**Signing Server (for hardware signing tests):**
+**Signing server (hardware signing tests):**
+
 - `signing-server-build` - Build the signing server
-- `signing-server-run` - Run the signing server in foreground
-- `signing-server-start` - Start the signing server in background
+- `signing-server-run` - Run the signing server in the foreground
+- `signing-server-start` - Start the signing server in the background
 - `signing-server-stop` - Stop the signing server
-- `signing-server-status` - Check if signing server is running
-- `signing-server-logs` - View signing server logs (tail -f)
+- `signing-server-status` - Check if the signing server is running
+- `signing-server-logs` - View signing server logs (`tail -f`)
 
 **Apps:**
+
 - `test-app` - Build the test app
 - `example-app` - Build the example app
 - `run-test-app` - Install and run the test app
 - `run-example-app` - Install and run the example app
 
 **Publishing:**
-- `publish` - Publish library to GitHub packages
 
-## Continuous integration & releases
-
-This project uses GitHub Actions for continuous integration and release management:
-
-### Release process
-
-The release process is automated through a single workflow:
-
-1. **Start a Release**:
-   - Trigger the "Release" workflow from the Actions tab
-   - Enter the version number (e.g., `v1.0.0`)
-
-2. **Automated Build and Release**:
-   - Downloads pre-built C2PA binaries
-   - Builds the Android AAR package
-   - Creates a GitHub release with the specified version
-   - Attaches the Android AAR artifact
-   - Publishes documentation for integration
+- `publish` - Publish the library to GitHub Packages
 
 ## Applications
 
-The comprehensive test application runs all C2PA functionality tests with a visual UI.  See [Project contributions](docs/project-contributions.md) for details.
+The test application runs C2PA functionality tests with a visual UI. See [Project contributions - Test app](docs/project-contributions.md#test-app) for details.
 
-### Example app (`/example-app`)
+### Example app
 
-A real-world demonstration app showcasing C2PA integration in a camera application:
+The example app lives in `example-app/`. It demonstrates C2PA integration in a camera application:
+
 - Camera capture with C2PA manifest embedding
 - Settings for configuring different signing modes
 - Gallery view of signed images
 - WebView integration for verifying content authenticity
 - Complete implementation of all signing modes:
-  - **Default**: Uses bundled test certificates for development (no configuration needed)
-  - **Android Keystore**: Software-backed keys in Android Keystore (no configuration needed)
-  - **Hardware Security**: StrongBox/TEE-backed keys for maximum security (requires signing server)
-  - **Custom**: Upload your own certificates and private keys (requires certificate files)
-  - **Remote**: Web service signing via signing server (requires server URL and optional token)
+  - **Default:** Uses bundled test certificates for development (no configuration needed).
+  - **Android Keystore:** Software-backed keys in Android Keystore (no configuration needed).
+  - **Hardware security:** Hardware-backed keys (StrongBox or TEE) for maximum security (requires the signing server).
+  - **Custom:** Upload your own certificates and private keys (requires certificate files).
+  - **Remote:** Web service signing via the signing server (requires server URL and optional token).
 
-**Configuration Required:**
+**Configuration required**
+
 Before using certain signing modes in the example app:
-- **Hardware Security**: Requires signing server running (`make signing-server-start`)
-- **Remote**: Requires entering signing server URL and optional bearer token in Settings
-- **Custom**: Requires uploading your own certificate and private key files via Settings
 
-**Running the example app:**
+- **Hardware security:** Run the signing server (`make signing-server-start`).
+- **Remote:** Enter the signing server URL and optional bearer token in **Settings**.
+- **Custom:** Upload your own certificate and private key files via **Settings**.
+
+**Running the example app**
+
 ```bash
 # Build and run on connected device/emulator
 make run-example-app
@@ -460,7 +451,8 @@ make run-example-app
 # Open the example-app module and run it
 ```
 
-**Signing server commands** (for Hardware Security and Remote modes):
+**Signing server commands** (for hardware security and remote modes):
+
 ```bash
 # Start the signing server
 make signing-server-start
@@ -473,84 +465,53 @@ make signing-server-logs
 
 # Stop server when done
 make signing-server-stop
+```
 
-or 
+Alternatively, start the signing server in the foreground:
 
-# Start the signing server in the foreground
+```bash
 make signing-server-run
 ```
 
 ## API features
 
 > [!NOTE]
-> For full details on the API, see the [API reference documentation](https://contentauth.github.io/c2pa-android/c2pa-android/org.contentauth.c2pa/index.html)
+> For full details on the API, see the [API reference documentation](https://contentauth.github.io/c2pa-android/c2pa-android/org.contentauth.c2pa/index.html).
 
 ### Core classes
 
-- **C2PA** - Main entry point for static operations (reading files, signing)
-- **Reader** - For reading and validating C2PA manifests from streams
-- **Builder** - For creating and signing new C2PA manifests
-- **Signer** - For signing manifests with various key types and methods
-- **Stream** - Base class for stream operations
-- **FileStream** - File-based stream implementation
-- **MemoryStream** - Memory-based stream implementation
-- **ByteArrayStream** - In-memory byte array stream implementation
-- **DataStream** - Stream wrapper for byte arrays
+- `C2PA` - Main entry point for static operations (reading files, signing)
+- `Reader` - Reads and validates C2PA manifests from streams
+- `Builder` - Creates and signs new C2PA manifests
+- `Signer` - Signs manifests with various key types and methods
+- `Stream` - Base class for stream operations
+- `FileStream` - File-based stream implementation
+- `MemoryStream` - Memory-based stream implementation
+- `ByteArrayStream` - In-memory byte array stream implementation
+- `DataStream` - Stream wrapper for byte arrays
 
 ### Signing classes
 
-- **StrongBoxSigner** - Hardware-backed signing with StrongBox Keymaster
-- **KeyStoreSigner** - Android Keystore-backed signing
-- **WebServiceSigner** - Remote signing via web service
-- **CertificateManager** - Certificate generation, CSR creation, and key management
+- `StrongBoxSigner` - Hardware-backed signing with StrongBox Keymaster
+- `KeyStoreSigner` - Android Keystore-backed signing
+- `WebServiceSigner` - Remote signing via web service
+- `CertificateManager` - Certificate generation, CSR creation, and key management
 
 ### Signing options
 
-1. **Direct Signing** - Using private key and certificate PEM strings (`Signer.fromKeys()`)
-2. **Callback Signing** - Custom signing implementations for HSM, cloud KMS, etc. (`Signer.withCallback()`)
-3. **Web Service Signing** - Remote signing via HTTP endpoints (`WebServiceSigner`)
-4. **Hardware Security** - Android Keystore and StrongBox integration
+1. **Direct signing** - Use private key and certificate PEM strings (`Signer.fromKeys()`).
+2. **Callback signing** - Custom signing implementations for HSM, cloud KMS, and similar (`Signer.withCallback()`).
+3. **Web service signing** - Remote signing via HTTP endpoints (`WebServiceSigner`).
+4. **Hardware security** - Android Keystore and StrongBox integration:
    - `StrongBoxSigner` - Hardware-isolated signing with StrongBox Keymaster
    - `KeyStoreSigner` - Software-backed Android Keystore signing
    - `CertificateManager` - Certificate and CSR management
    - **Requirements:**
      - Android API 28+ (Android 9.0+)
-     - StrongBox hardware support (automatically falls back to TEE if unavailable)
+     - StrongBox hardware support (falls back to TEE if unavailable)
      - External signing server or CA for certificate enrollment
-     - Only ES256 (P-256) algorithm supported for StrongBox
-
-## Testing
-
-The project includes comprehensive instrumented tests that validate the C2PA functionality through the JNI bridge:
-
-### Instrumented tests
-
-Run instrumented tests on a connected device or emulator:
-```bash
-make tests-with-server
-```
-
-### Test coverage
-
-Generate test coverage reports:
-```bash
-make coverage
-```
-
-Coverage reports will be available at:
-- HTML: `library/build/reports/jacoco/jacocoInstrumentedTestReport/html/index.html`
-- XML: `library/build/reports/jacoco/jacocoInstrumentedTestReport/jacocoInstrumentedTestReport.xml`
-
-The project uses JaCoCo for coverage reporting. Coverage reports are generated during CI builds and stored as artifacts.
-
-## JNI implementation
-
-The Android library uses JNI (Java Native Interface):
-
-- **Native Layer:**
-  - C API headers: `library/src/main/jni/c2pa.h`
-  - JNI implementation: `library/src/main/jni/c2pa_jni.c`
+     - Only ES256 (P-256) is supported for StrongBox
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0 and MIT License. See the [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) files for details.
+This project is licensed under the Apache License, Version 2.0, and the MIT License. See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
