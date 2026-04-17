@@ -85,7 +85,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
          * @throws C2PAError.Api if the stream doesn't contain a valid C2PA manifest or the format
          * is unsupported
          *
-         * @sample
          * ```kotlin
          * val inputStream = FileInputStream("signed_photo.jpg")
          * val stream = Stream.fromInputStream(inputStream)
@@ -113,7 +112,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
          * @return A Reader instance configured with the context's settings
          * @throws C2PAError.Api if the reader cannot be created
          *
-         * @sample
          * ```kotlin
          * val context = C2PAContext.create()
          * val reader = Reader.fromContext(context)
@@ -146,7 +144,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
          * @return A Reader instance for accessing the manifest
          * @throws C2PAError.Api if the manifest data is invalid or incompatible with the media
          *
-         * @sample
          * ```kotlin
          * val mediaStream = Stream.fromInputStream(FileInputStream("photo.jpg"))
          * val manifestBytes = File("photo.c2pa").readBytes()
@@ -181,7 +178,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      * @return This reader for fluent chaining
      * @throws C2PAError.Api if the stream cannot be read or the format is unsupported
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromContext(context)
      *     .withStream("image/jpeg", stream)
@@ -211,7 +207,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      * @return This reader for fluent chaining
      * @throws C2PAError.Api if the streams cannot be read or the format is unsupported
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromContext(context)
      *     .withFragment("video/mp4", mainStream, fragmentStream)
@@ -239,7 +234,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      * @return The manifest as a JSON string
      * @throws C2PAError.Api if the manifest cannot be serialized to JSON
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromStream("image/jpeg", stream)
      * val json = reader.json()
@@ -271,7 +265,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      * @return A JSON string containing the detailed manifest data
      * @throws C2PAError.Api if the manifest cannot be read or is invalid
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromStream("image/jpeg", stream)
      *
@@ -302,7 +295,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      *
      * @return The remote URL string, or `null` if the manifest is embedded
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromStream("image/jpeg", stream)
      * val remoteURL = reader.remoteUrl()
@@ -327,7 +319,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      *
      * @return `true` if the manifest is embedded, `false` if it is remote
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromStream("image/jpeg", stream)
      * if (reader.isEmbedded()) {
@@ -356,7 +347,6 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      * @param to The output stream to write the resource data to
      * @throws C2PAError.Api if the resource URI is not found or cannot be extracted
      *
-     * @sample
      * ```kotlin
      * val reader = Reader.fromStream("image/jpeg", stream)
      * val manifestJson = reader.json()
