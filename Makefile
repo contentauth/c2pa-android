@@ -87,7 +87,7 @@ format:
 # Generate API documentation using Dokka
 docs:
 	@echo "Generating API documentation..."
-	@./gradlew generateDocs
+	@./gradlew :library:dokkaGeneratePublicationHtml --rerun-tasks
 	@echo ""
 	@echo "Documentation generation complete!"
 	@echo "Output: build/docs/index.html"

@@ -11,12 +11,15 @@ each license.
 */
 
 import org.gradle.api.publish.maven.MavenPublication
+import java.net.HttpURLConnection
+import java.net.URI
 import java.util.Properties
+import java.util.zip.ZipInputStream
 
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("org.jetbrains.dokka")
     id("jacoco")
     `maven-publish`
 }
@@ -77,15 +80,41 @@ android {
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt") } }
 
     // Make sure to include JNI libs
-    sourceSets { getByName("main") { jniLibs.srcDirs("src/main/jniLibs") } }
+    sourceSets { getByName("main") { jniLibs.directories.add("src/main/jniLibs") } }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
-
     testOptions { unitTests { isIncludeAndroidResources = true } }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
+dokka {
+    moduleName.set("c2pa-android")
+    dokkaPublications.html {
+        outputDirectory.set(rootDir.resolve("build/docs"))
+    }
+    dokkaSourceSets.register("main") {
+        sourceRoots.from("src/main/kotlin")
+        includes.from("MODULE.md")
+        documentedVisibilities(
+            org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier.Public,
+            org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier.Protected,
+            org.jetbrains.dokka.gradle.engine.parameters.VisibilityModifier.Internal,
+        )
+    }
 }
 
 // Set the base name for the AAR file
@@ -189,66 +218,87 @@ val architectures =
     )
 
 tasks.register("setupDirectories") {
+    val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
+    val jniDir = layout.projectDirectory.dir("src/main/jni")
+    val archKeys = architectures.keys.toList()
     doLast {
-        val jniLibsDir = file("src/main/jniLibs")
-        architectures.keys.forEach { arch -> file("$jniLibsDir/$arch").mkdirs() }
-        file("src/main/jni").mkdirs()
+        archKeys.forEach { arch -> jniLibsDir.dir(arch).asFile.mkdirs() }
+        jniDir.asFile.mkdirs()
     }
 }
 
 tasks.register("downloadNativeLibraries") {
     dependsOn("setupDirectories")
 
+    val projectDir = layout.projectDirectory
+    val downloadDir = rootDir.resolve("downloads")
+    val jniLibsDir = projectDir.dir("src/main/jniLibs")
+    val destHeader = projectDir.file("src/main/jni/c2pa.h")
+    val archMap = architectures.toMap()
+    val version = c2paVersion
+
     doLast {
-        println("Using C2PA version: $c2paVersion")
-        val downloadDir = file("$rootDir/downloads")
+        println("Using C2PA version: $version")
         downloadDir.mkdirs()
 
         var headerDownloaded = false
 
-        architectures.forEach { (arch, target) ->
-            val libDir = file("src/main/jniLibs/$arch")
-            val soFile = file("$libDir/libc2pa_c.so")
+        archMap.forEach { (arch, target) ->
+            val soFile = jniLibsDir.file("$arch/libc2pa_c.so").asFile
 
             if (!soFile.exists()) {
                 println("Downloading C2PA library for $arch...")
 
-                val zipFile = file("$downloadDir/$arch.zip")
-                val extractDir = file("$downloadDir/$arch")
+                val zipFile = downloadDir.resolve("$arch.zip")
+                val extractDir = downloadDir.resolve(arch)
 
                 // Download the zip file
                 val url =
-                    "https://github.com/contentauth/c2pa-rs/releases/download/c2pa-$c2paVersion/c2pa-$c2paVersion-$target.zip"
+                    "https://github.com/contentauth/c2pa-rs/releases/download/c2pa-$version/c2pa-$version-$target.zip"
                 println("Downloading from: $url")
-                ant.invokeMethod(
-                    "get",
-                    mapOf("src" to url, "dest" to zipFile, "skipexisting" to "true"),
-                )
+                if (!zipFile.exists()) {
+                    val connection = URI(url).toURL().openConnection() as HttpURLConnection
+                    connection.instanceFollowRedirects = true
+                    connection.inputStream.use { input ->
+                        zipFile.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
 
                 // Extract the zip file
-                ant.invokeMethod(
-                    "unzip",
-                    mapOf("src" to zipFile, "dest" to extractDir, "overwrite" to "true"),
-                )
+                extractDir.mkdirs()
+                val zipInputStream = ZipInputStream(zipFile.inputStream())
+                zipInputStream.use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        val outFile = extractDir.resolve(entry.name)
+                        if (entry.isDirectory) {
+                            outFile.mkdirs()
+                        } else {
+                            outFile.parentFile.mkdirs()
+                            outFile.outputStream().use { output -> zis.copyTo(output) }
+                        }
+                        entry = zis.nextEntry
+                    }
+                }
 
                 // Copy the .so file
-                file("$extractDir/lib/libc2pa_c.so").copyTo(soFile, overwrite = true)
+                extractDir.resolve("lib/libc2pa_c.so").copyTo(soFile, overwrite = true)
 
                 // Copy header file from first architecture
                 if (!headerDownloaded) {
-                    val headerFile = file("$extractDir/include/c2pa.h")
+                    val headerFile = extractDir.resolve("include/c2pa.h")
                     if (headerFile.exists()) {
-                        val destHeader = file("src/main/jni/c2pa.h")
-                        headerFile.copyTo(destHeader, overwrite = true)
+                        val dest = destHeader.asFile
+                        headerFile.copyTo(dest, overwrite = true)
 
                         // Patch the header file
-                        val content = destHeader.readText()
+                        val content = dest.readText()
                         val patchedContent =
                             content.replace(
                                 "typedef struct C2paSigner C2paSigner;",
                                 "typedef struct C2paSigner { } C2paSigner;",
                             )
-                        destHeader.writeText(patchedContent)
+                        dest.writeText(patchedContent)
 
                         headerDownloaded = true
                         println("Patched c2pa.h header file")
@@ -261,20 +311,30 @@ tasks.register("downloadNativeLibraries") {
     }
 }
 
-// Hook into the build process - download libraries before compilation if they don't exist
-tasks.named("preBuild") { dependsOn("downloadNativeLibraries") }
+// Hook into the build process - download libraries before compilation if they don't exist.
+// AGP 9 no longer wires the per-ABI CMake tasks through preBuild for JNI sources, so depend on
+// downloadNativeLibraries from those tasks directly as well.
+tasks.matching {
+    it.name == "preBuild" ||
+        it.name.startsWith("configureCMake") ||
+        it.name.startsWith("buildCMake")
+}.configureEach { dependsOn("downloadNativeLibraries") }
 
 // Clean downloaded native libraries
 tasks.register("cleanDownloadedLibraries") {
+    val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
+    val headerFile = layout.projectDirectory.file("src/main/jni/c2pa.h")
+    val downloadsDir = rootDir.resolve("downloads")
+    val archKeys = architectures.keys.toList()
     doLast {
         // Remove downloaded libraries
-        architectures.keys.forEach { arch -> file("src/main/jniLibs/$arch/libc2pa_c.so").delete() }
+        archKeys.forEach { arch -> jniLibsDir.file("$arch/libc2pa_c.so").asFile.delete() }
 
         // Remove header file
-        file("src/main/jni/c2pa.h").delete()
+        headerFile.asFile.delete()
 
         // Remove downloads directory
-        file("$rootDir/downloads").deleteRecursively()
+        downloadsDir.deleteRecursively()
 
         println("Cleaned downloaded native libraries")
     }
