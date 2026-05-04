@@ -311,8 +311,14 @@ tasks.register("downloadNativeLibraries") {
     }
 }
 
-// Hook into the build process - download libraries before compilation if they don't exist
-tasks.named("preBuild") { dependsOn("downloadNativeLibraries") }
+// Hook into the build process - download libraries before compilation if they don't exist.
+// AGP 9 no longer wires the per-ABI CMake tasks through preBuild for JNI sources, so depend on
+// downloadNativeLibraries from those tasks directly as well.
+tasks.matching {
+    it.name == "preBuild" ||
+        it.name.startsWith("configureCMake") ||
+        it.name.startsWith("buildCMake")
+}.configureEach { dependsOn("downloadNativeLibraries") }
 
 // Clean downloaded native libraries
 tasks.register("cleanDownloadedLibraries") {
