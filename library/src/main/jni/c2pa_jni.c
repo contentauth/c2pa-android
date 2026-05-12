@@ -229,7 +229,7 @@ static void throw_c2pa_exception(JNIEnv *env, const char *defaultMessage) {
     char *error = c2pa_error();
     if (error != NULL && strlen(error) > 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), error);
-        c2pa_string_free(error);
+        c2pa_free(error);
     } else {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), defaultMessage);
     }
@@ -415,14 +415,14 @@ static intptr_t java_signer_callback(const void *context, const unsigned char *d
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_version(JNIEnv *env, jclass clazz) {
     char *version = c2pa_version();
     jstring result = cstring_to_jstring(env, version);
-    c2pa_string_free(version);
+    c2pa_free(version);
     return result;
 }
 
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_getError(JNIEnv *env, jclass clazz) {
     char *error = c2pa_error();
     jstring result = cstring_to_jstring(env, error);
-    c2pa_string_free(error);
+    c2pa_free(error);
     return result;
 }
 
@@ -445,7 +445,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_readFileNative(JNIEnv *
     char *result = c2pa_read_file(cpath, cdataDir);
     jstring jresult = cstring_to_jstring(env, result);
     
-    c2pa_string_free(result);
+    c2pa_free(result);
     release_cstring(env, path, cpath);
     release_cstring(env, dataDir, cdataDir);
     
@@ -459,7 +459,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_readIngredientFileNativ
     char *result = c2pa_read_ingredient_file(cpath, cdataDir);
     jstring jresult = cstring_to_jstring(env, result);
     
-    c2pa_string_free(result);
+    c2pa_free(result);
     release_cstring(env, path, cpath);
     release_cstring(env, dataDir, cdataDir);
     
@@ -505,7 +505,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_signFileNative(JNIEnv *
     char *result = c2pa_sign_file(csourcePath, cdestPath, cmanifest, &cSignerInfo, cdataDir);
     jstring jresult = cstring_to_jstring(env, result);
     
-    c2pa_string_free(result);
+    c2pa_free(result);
     release_cstring(env, sourcePath, csourcePath);
     release_cstring(env, destPath, cdestPath);
     release_cstring(env, manifest, cmanifest);
@@ -653,7 +653,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromManifestDataAndStre
 
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Reader_free(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr != 0) {
-        c2pa_reader_free((struct C2paReader*)(uintptr_t)readerPtr);
+        c2pa_free((struct C2paReader*)(uintptr_t)readerPtr);
     }
 }
 
@@ -673,7 +673,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toJsonNative(JNIEnv *
     }
     
     jstring result = cstring_to_jstring(env, json);
-    c2pa_string_free(json);
+    c2pa_free(json);
     return result;
 }
 
@@ -693,7 +693,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(
     }
     
     jstring result = cstring_to_jstring(env, json);
-    c2pa_string_free(json);
+    c2pa_free(json);
     return result;
 }
 
@@ -712,7 +712,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_remoteUrlNative(JNIEn
     }
     
     jstring result = cstring_to_jstring(env, url);
-    c2pa_string_free((char*)url);
+    c2pa_free((char*)url);
     return result;
 }
 
@@ -770,7 +770,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIE
 
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Builder_free(JNIEnv *env, jobject obj, jlong builderPtr) {
     if (builderPtr != 0) {
-        c2pa_builder_free((struct C2paBuilder*)(uintptr_t)builderPtr);
+        c2pa_free((struct C2paBuilder*)(uintptr_t)builderPtr);
     }
 }
 
@@ -892,7 +892,7 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
         if (resultClass == NULL) {
             check_exception(env);
             if (manifestBytes != NULL) {
-                c2pa_manifest_bytes_free(manifestBytes);
+                c2pa_free(manifestBytes);
             }
             return NULL;
         }
@@ -902,7 +902,7 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
     if (constructor == NULL) {
         check_exception(env);
         if (manifestBytes != NULL) {
-            c2pa_manifest_bytes_free(manifestBytes);
+            c2pa_free(manifestBytes);
         }
         return NULL;
     }
@@ -911,17 +911,17 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
     if (manifestBytes != NULL && size > 0) {
         jmanifestBytes = safe_new_byte_array(env, size);
         if (jmanifestBytes == NULL) {
-            c2pa_manifest_bytes_free(manifestBytes);
+            c2pa_free(manifestBytes);
             return NULL;
         }
         
         (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, size, (const jbyte*)manifestBytes);
         if (check_exception(env)) {
-            c2pa_manifest_bytes_free(manifestBytes);
+            c2pa_free(manifestBytes);
             return NULL;
         }
         
-        c2pa_manifest_bytes_free(manifestBytes);
+        c2pa_free(manifestBytes);
     }
     
     jobject result = (*env)->NewObject(env, resultClass, constructor, (jlong)size, jmanifestBytes);
@@ -958,17 +958,17 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
     
     jbyteArray result = safe_new_byte_array(env, size);
     if (result == NULL) {
-        c2pa_manifest_bytes_free(manifestBytes);
+        c2pa_free(manifestBytes);
         return NULL;
     }
     
     (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
-        c2pa_manifest_bytes_free(manifestBytes);
+        c2pa_free(manifestBytes);
         return NULL;
     }
     
-    c2pa_manifest_bytes_free(manifestBytes);
+    c2pa_free(manifestBytes);
     return result;
 }
 
@@ -991,7 +991,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmb
     
     jbyteArray result = (*env)->NewByteArray(env, size);
     (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
-    c2pa_manifest_bytes_free(manifestBytes);
+    c2pa_free(manifestBytes);
     
     return result;
 }
@@ -1189,7 +1189,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Signer_free(JNIEnv *env, jobjec
         // Clean up any associated callback context
         unregister_signer_context(signer);
         
-        c2pa_signer_free(signer);
+        c2pa_free(signer);
     }
 }
 
@@ -1473,7 +1473,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_C2PA_ed25519SignNative(JN
                 result = NULL;
             }
         }
-        c2pa_signature_free(signature);
+        c2pa_free(signature);
     }
     
     (*env)->ReleaseByteArrayElements(env, data, cdata, JNI_ABORT);
