@@ -155,7 +155,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
          * @throws C2PAError.Api if the JSON is invalid or doesn't conform to the C2PA manifest
          * schema
          *
-         * @sample
          * ```kotlin
          * val manifestJson = """
          * {
@@ -231,7 +230,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
          * @return A Builder instance configured with the context's settings
          * @throws C2PAError.Api if the builder cannot be created
          *
-         * @sample
          * ```kotlin
          * val settings = C2PASettings.create()
          *     .updateFromString(settingsJson, "json")
@@ -263,7 +261,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
          * @return A Builder instance configured with the provided settings and manifest
          * @throws C2PAError.Api if the JSON is invalid or settings cannot be applied
          *
-         * @sample
          * ```kotlin
          * val settings = C2PASettings.create()
          *     .updateFromString(settingsJson, "json")
@@ -300,7 +297,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * @return This builder for fluent chaining
      * @throws C2PAError.Api if the manifest JSON is invalid
      *
-     * @sample
      * ```kotlin
      * val builder = Builder.fromContext(context)
      *     .withDefinition(manifestJson)
@@ -324,7 +320,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * @return This builder for fluent chaining
      * @throws C2PAError.Api if the archive is invalid
      *
-     * @sample
      * ```kotlin
      * val builder = Builder.fromContext(context)
      *     .withArchive(archiveStream)
@@ -352,7 +347,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * @return This builder for fluent chaining
      * @throws C2PAError.Api if the intent cannot be set
      *
-     * @sample
      * ```kotlin
      * val builder = Builder.fromJson(manifestJson)
      *     .setIntent(BuilderIntent.Create(DigitalSourceType.DIGITAL_CAPTURE))
@@ -382,7 +376,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * @return This builder for fluent chaining
      * @throws C2PAError.Api if the action cannot be added
      *
-     * @sample
      * ```kotlin
      * val builder = Builder.fromJson(manifestJson)
      *     .addAction(Action(PredefinedAction.EDITED, DigitalSourceType.DIGITAL_CAPTURE))

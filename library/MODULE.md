@@ -10,23 +10,23 @@ This library enables Android applications to create, read, and validate C2PA man
 
 ### Content Authenticity
 
-- [Reader] - Read and validate C2PA manifests from media files
-- [Builder] - Create new C2PA manifests with claims, assertions, and ingredients
+- [Reader][org.contentauth.c2pa.Reader] - Read and validate C2PA manifests from media files
+- [Builder][org.contentauth.c2pa.Builder] - Create new C2PA manifests with claims, assertions, and ingredients
 
 ### Signing Methods
 
 The library supports multiple signing approaches:
 
-- **Direct signing** - Sign with in-memory private keys using [SignerInfo]
-- **Callback signing** - Implement custom signing logic with [Signer]
-- **Web service signing** - Delegate signing to remote servers with [WebServiceSigner]
-- **Hardware security** - Use device hardware security modules with [StrongBoxSigner] or [KeyStoreSigner]
+- **Direct signing** - Sign with in-memory private keys using [SignerInfo][org.contentauth.c2pa.SignerInfo]
+- **Callback signing** - Implement custom signing logic with [Signer][org.contentauth.c2pa.Signer]
+- **Web service signing** - Delegate signing to remote servers with [WebServiceSigner][org.contentauth.c2pa.WebServiceSigner]
+- **Hardware security** - Use device hardware security modules with [StrongBoxSigner][org.contentauth.c2pa.StrongBoxSigner] or [KeyStoreSigner][org.contentauth.c2pa.KeyStoreSigner]
 
 ### Hardware Security Integration
 
-- [StrongBoxSigner] - Hardware-backed signing using Android StrongBox
-- [KeyStoreSigner] - Android Keystore signing with optional biometric authentication
-- [CertificateManager] - Certificate generation and management for Android Keystore
+- [StrongBoxSigner][org.contentauth.c2pa.StrongBoxSigner] - Hardware-backed signing using Android StrongBox
+- [KeyStoreSigner][org.contentauth.c2pa.KeyStoreSigner] - Android Keystore signing with optional biometric authentication
+- [CertificateManager][org.contentauth.c2pa.CertificateManager] - Certificate generation and management for Android Keystore
 
 ## Platform Requirements
 
