@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -243,7 +244,7 @@ private fun CameraPreview(lifecycleOwner: LifecycleOwner, onCapture: (Bitmap) ->
                 }
             },
             modifier =
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp).size(72.dp),
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 100.dp).size(72.dp),
         ) {
             Icon(
                 imageVector = Icons.Filled.PhotoCamera,
@@ -332,6 +333,7 @@ private fun CameraControls(
         modifier =
         modifier.fillMaxWidth()
             .background(Color.Black.copy(alpha = 0.5f))
+            .navigationBarsPadding()
             .padding(16.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
@@ -406,6 +408,7 @@ private fun ImagePreview(bitmap: Bitmap, location: Location?, onConfirm: () -> U
             Modifier.align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Color.Black.copy(alpha = 0.7f))
+                .navigationBarsPadding()
                 .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
