@@ -229,6 +229,7 @@ tasks.register("setupDirectories") {
 
 tasks.register("downloadNativeLibraries") {
     dependsOn("setupDirectories")
+    mustRunAfter("cleanDownloadedLibraries")
 
     val projectDir = layout.projectDirectory
     val downloadDir = rootDir.resolve("downloads")

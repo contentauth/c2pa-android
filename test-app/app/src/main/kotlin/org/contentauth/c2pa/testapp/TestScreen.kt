@@ -208,6 +208,11 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(signerTests.testStrongBoxAvailability())
     results.add(signerTests.testSignerFromSettingsToml())
     results.add(signerTests.testSignerFromSettingsJson())
+    results.add(signerTests.testCawgCombinedPemSigner())
+    results.add(signerTests.testCawgCombinedCallbackSigner())
+    results.add(signerTests.testCawgConsumesInputSigners())
+    results.add(signerTests.testCawgRejectsClosedSigner())
+    results.add(signerTests.testCawgCombinedStrongBoxIdentity())
 
     // Web Service Tests (if server is available)
     val webServiceTests = AppWebServiceTests(context)

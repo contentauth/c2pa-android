@@ -237,6 +237,67 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             if (handle == 0L) null else Signer(handle)
         }
 
+        /**
+         * Combine a C2PA claim signer with an X.509 identity signer to produce a
+         * combined signer that emits a `cawg.identity` assertion alongside the C2PA
+         * claim signature.
+         *
+         * Both input signers may be created via any existing factory: [fromKeys],
+         * [fromInfo], [withCallback], or hardware-backed factories such as
+         * [StrongBoxSigner] / [KeyStoreSigner] / [WebServiceSigner]. The combined
+         * signer is then passed to [Builder.sign] like any other signer.
+         *
+         * Ownership: both input signers are *consumed* by this call. After it
+         * returns (success or failure), neither may be used again. The wrapper
+         * zeros each input's internal pointer, so calling `close()` on the inputs
+         * (or wrapping them in a `use { }` block) is a safe no-op. Only the
+         * returned [Signer] must be closed by the caller.
+         *
+         * @param c2pa The signer that produces the C2PA claim signature.
+         * @param identity The signer that produces the CAWG identity assertion.
+         * @param referencedAssertions Manifest assertion labels covered by the
+         *   identity assertion (e.g. `"c2pa.actions"`). Must be non-empty entries.
+         * @param roles Optional role strings to attach to the identity assertion.
+         * @return A combined [Signer] suitable for passing to [Builder.sign].
+         * @throws C2PAError.Api if either input signer is already closed, if
+         *   `referencedAssertions.size + roles.size` exceeds 256, if any entry
+         *   is empty, or if the underlying FFI call fails.
+         * @see Builder.sign
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun withCawgIdentity(
+            c2pa: Signer,
+            identity: Signer,
+            referencedAssertions: List<String>,
+            roles: List<String> = emptyList(),
+        ): Signer {
+            if (c2pa.ptr == 0L) throw C2PAError.Api("c2pa signer is already closed")
+            if (identity.ptr == 0L) throw C2PAError.Api("identity signer is already closed")
+            if (referencedAssertions.size + roles.size > 256) {
+                throw C2PAError.Api("referencedAssertions + roles cannot exceed 256 entries")
+            }
+            if (referencedAssertions.any { it.isEmpty() }) {
+                throw C2PAError.Api("referencedAssertions cannot contain empty strings")
+            }
+            if (roles.any { it.isEmpty() }) {
+                throw C2PAError.Api("roles cannot contain empty strings")
+            }
+
+            return executeC2PAOperation("Failed to combine signers for CAWG identity") {
+                val handle =
+                    nativeCombineCawg(
+                        c2pa.ptr,
+                        identity.ptr,
+                        referencedAssertions.toTypedArray(),
+                        roles.toTypedArray(),
+                    )
+                c2pa.ptr = 0L
+                identity.ptr = 0L
+                if (handle == 0L) null else Signer(handle)
+            }
+        }
+
         @JvmStatic
         private external fun nativeFromInfo(
             algorithm: String,
@@ -255,6 +316,14 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
 
         @JvmStatic
         private external fun nativeFromSettings(): Long
+
+        @JvmStatic
+        private external fun nativeCombineCawg(
+            c2paHandle: Long,
+            identityHandle: Long,
+            referencedAssertions: Array<String>,
+            roles: Array<String>,
+        ): Long
     }
 
     /** Get the reserve size for this signer */

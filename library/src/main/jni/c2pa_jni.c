@@ -1178,6 +1178,111 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIE
     return (jlong)(uintptr_t)signer;
 }
 
+// Helper to convert a String[] into a NULL-terminated C string array for the FFI
+static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***out_array, jstring **out_jstrings, jsize *out_len) {
+    if (jarray == NULL) {
+        const char **arr = (const char **)malloc(sizeof(const char *));
+        if (arr == NULL) return -1;
+        arr[0] = NULL;
+        *out_array = arr;
+        *out_jstrings = NULL;
+        *out_len = 0;
+        return 0;
+    }
+    jsize len = (*env)->GetArrayLength(env, jarray);
+    const char **arr = (const char **)malloc(sizeof(const char *) * (size_t)(len + 1));
+    if (arr == NULL) return -1;
+    jstring *jstrs = NULL;
+    if (len > 0) {
+        jstrs = (jstring *)malloc(sizeof(jstring) * (size_t)len);
+        if (jstrs == NULL) {
+            free(arr);
+            return -1;
+        }
+    }
+    for (jsize i = 0; i < len; i++) {
+        jstring js = (jstring)(*env)->GetObjectArrayElement(env, jarray, i);
+        if (js == NULL) {
+            for (jsize j = 0; j < i; j++) {
+                (*env)->ReleaseStringUTFChars(env, jstrs[j], arr[j]);
+                (*env)->DeleteLocalRef(env, jstrs[j]);
+            }
+            free(jstrs);
+            free(arr);
+            (*env)->ThrowNew(env,
+                             (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                             "Array element cannot be null");
+            return -1;
+        }
+        const char *cs = (*env)->GetStringUTFChars(env, js, NULL);
+        if (cs == NULL) {
+            (*env)->DeleteLocalRef(env, js);
+            for (jsize j = 0; j < i; j++) {
+                (*env)->ReleaseStringUTFChars(env, jstrs[j], arr[j]);
+                (*env)->DeleteLocalRef(env, jstrs[j]);
+            }
+            free(jstrs);
+            free(arr);
+            return -1;
+        }
+        jstrs[i] = js;
+        arr[i] = cs;
+    }
+    arr[len] = NULL;
+    *out_array = arr;
+    *out_jstrings = jstrs;
+    *out_len = len;
+    return 0;
+}
+
+// Helper to release the C string array allocated by build_cstring_array
+static void release_cstring_array(JNIEnv *env, const char **arr, jstring *jstrs, jsize len) {
+    if (jstrs != NULL) {
+        for (jsize i = 0; i < len; i++) {
+            if (jstrs[i] != NULL && arr != NULL && arr[i] != NULL) {
+                (*env)->ReleaseStringUTFChars(env, jstrs[i], arr[i]);
+                (*env)->DeleteLocalRef(env, jstrs[i]);
+            }
+        }
+        free(jstrs);
+    }
+    if (arr != NULL) free((void *)arr);
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeCombineCawg(JNIEnv *env, jclass clazz, jlong c2paHandle, jlong identityHandle, jobjectArray referencedAssertions, jobjectArray roles) {
+    if (c2paHandle == 0 || identityHandle == 0) {
+        (*env)->ThrowNew(env,
+                         (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Signer handles cannot be zero");
+        return 0;
+    }
+
+    const char **refs_arr = NULL;
+    jstring *refs_jstrs = NULL;
+    jsize refs_len = 0;
+    if (build_cstring_array(env, referencedAssertions, &refs_arr, &refs_jstrs,
+                            &refs_len) != 0) {
+        return 0;
+    }
+
+    const char **roles_arr = NULL;
+    jstring *roles_jstrs = NULL;
+    jsize roles_len = 0;
+    if (build_cstring_array(env, roles, &roles_arr, &roles_jstrs, &roles_len) != 0) {
+        release_cstring_array(env, refs_arr, refs_jstrs, refs_len);
+        return 0;
+    }
+
+    struct C2paSigner *combined = c2pa_identity_signer_create(
+        (struct C2paSigner *)(uintptr_t)c2paHandle,
+        (struct C2paSigner *)(uintptr_t)identityHandle, refs_arr, roles_arr);
+
+    release_cstring_array(env, refs_arr, refs_jstrs, refs_len);
+    release_cstring_array(env, roles_arr, roles_jstrs, roles_len);
+
+    return (jlong)(uintptr_t)combined;
+}
+
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_reserveSizeNative(JNIEnv *env, jobject obj, jlong signerPtr) {
     return c2pa_signer_reserve_size((struct C2paSigner*)(uintptr_t)signerPtr);
 }
