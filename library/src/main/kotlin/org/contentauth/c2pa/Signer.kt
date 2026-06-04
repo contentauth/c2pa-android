@@ -28,6 +28,12 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
         }
 
         /**
+         * Per-array entry limit for FFI string array parameters. Mirrors
+         * `MAX_STRING_ARRAY_LEN` in `c2pa.h`.
+         */
+        private const val MAX_STRING_ARRAY_LEN = 256
+
+        /**
          * Creates a signer from PEM-encoded certificates and a private key.
          *
          * This is the simplest way to create a signer when you have the certificate chain
@@ -110,8 +116,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          */
         @JvmStatic
         @Throws(C2PAError::class)
-        fun fromSettingsJson(settingsJson: String): Signer =
-            fromSettings(settingsJson, "json")
+        fun fromSettingsJson(settingsJson: String): Signer = fromSettings(settingsJson, "json")
 
         /**
          * Creates a signer from TOML settings configuration.
@@ -156,8 +161,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          */
         @JvmStatic
         @Throws(C2PAError::class)
-        fun fromSettingsToml(settingsToml: String): Signer =
-            fromSettings(settingsToml, "toml")
+        fun fromSettingsToml(settingsToml: String): Signer = fromSettings(settingsToml, "toml")
 
         /**
          * Creates a signer from settings configuration in the specified format.
@@ -247,21 +251,33 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * [StrongBoxSigner] / [KeyStoreSigner] / [WebServiceSigner]. The combined
          * signer is then passed to [Builder.sign] like any other signer.
          *
-         * Ownership: both input signers are *consumed* by this call. After it
-         * returns (success or failure), neither may be used again. The wrapper
-         * zeros each input's internal pointer, so calling `close()` on the inputs
-         * (or wrapping them in a `use { }` block) is a safe no-op. Only the
-         * returned [Signer] must be closed by the caller.
+         * Ownership: once the underlying FFI call is reached, both input signers
+         * are *consumed* — ownership transfers to the returned signer and neither
+         * input may be used again. The wrapper zeros each input's internal pointer
+         * on consumption, so calling `close()` on the inputs (or wrapping them in
+         * a `use { }` block) is a safe no-op. Only the returned [Signer] must be
+         * closed by the caller. If this method throws *before* the FFI call (e.g.
+         * an input was already closed, or an argument failed validation), the
+         * inputs are NOT consumed and the caller remains responsible for closing
+         * them.
+         *
+         * Thread safety: this method reads each input's internal pointer without
+         * synchronization. Do not call it concurrently with [close] on the same
+         * signer, or with another operation that may free the underlying native
+         * pointer.
          *
          * @param c2pa The signer that produces the C2PA claim signature.
          * @param identity The signer that produces the CAWG identity assertion.
          * @param referencedAssertions Manifest assertion labels covered by the
-         *   identity assertion (e.g. `"c2pa.actions"`). Must be non-empty entries.
+         *   identity assertion (e.g. `"c2pa.actions"`). Each entry must be
+         *   non-empty; the list itself may have up to 256 entries.
          * @param roles Optional role strings to attach to the identity assertion.
+         *   Each entry must be non-empty; the list itself may have up to 256
+         *   entries.
          * @return A combined [Signer] suitable for passing to [Builder.sign].
          * @throws C2PAError.Api if either input signer is already closed, if
-         *   `referencedAssertions.size + roles.size` exceeds 256, if any entry
-         *   is empty, or if the underlying FFI call fails.
+         *   either list exceeds 256 entries, if any entry is empty, or if the
+         *   underlying FFI call fails.
          * @see Builder.sign
          */
         @JvmStatic
@@ -274,8 +290,13 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
         ): Signer {
             if (c2pa.ptr == 0L) throw C2PAError.Api("c2pa signer is already closed")
             if (identity.ptr == 0L) throw C2PAError.Api("identity signer is already closed")
-            if (referencedAssertions.size + roles.size > 256) {
-                throw C2PAError.Api("referencedAssertions + roles cannot exceed 256 entries")
+            if (referencedAssertions.size > MAX_STRING_ARRAY_LEN) {
+                throw C2PAError.Api(
+                    "referencedAssertions cannot exceed $MAX_STRING_ARRAY_LEN entries",
+                )
+            }
+            if (roles.size > MAX_STRING_ARRAY_LEN) {
+                throw C2PAError.Api("roles cannot exceed $MAX_STRING_ARRAY_LEN entries")
             }
             if (referencedAssertions.any { it.isEmpty() }) {
                 throw C2PAError.Api("referencedAssertions cannot contain empty strings")

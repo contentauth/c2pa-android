@@ -1060,34 +1060,53 @@ static void register_signer_context(struct C2paSigner *signer, JavaSignerContext
     }
 }
 
-// Unregister and free a signer context
+// Unregister and free all signer contexts associated with a signer
+// (a CAWG combined signer may carry more than one after rekey_signer_context).
 static void unregister_signer_context(struct C2paSigner *signer) {
     pthread_mutex_lock(&g_signerContextsMutex);
-    
+
     SignerContextNode **current = &g_signerContexts;
     while (*current != NULL) {
         if ((*current)->signer == signer) {
             SignerContextNode *toDelete = *current;
             JavaSignerContext *ctx = toDelete->context;
-            
+
             // Mark context as inactive
             if (ctx != NULL) {
                 ctx->isActive = JNI_FALSE;
-                
+
                 JNIEnv *env = get_jni_env();
                 if (env != NULL && ctx->callback != NULL) {
                     (*env)->DeleteGlobalRef(env, ctx->callback);
                 }
                 free(ctx);
             }
-            
+
             *current = toDelete->next;
             free(toDelete);
-            break;
+            // Continue scanning — do not break, so all matches are removed.
+        } else {
+            current = &(*current)->next;
         }
-        current = &(*current)->next;
     }
-    
+
+    pthread_mutex_unlock(&g_signerContextsMutex);
+}
+
+// Re-key signer contexts after c2pa_identity_signer_create consumes the input signers,
+// so the contexts are freed when the combined signer is freed.
+static void rekey_signer_context(struct C2paSigner *old_signer, struct C2paSigner *new_signer) {
+    if (old_signer == new_signer) {
+        return;
+    }
+    pthread_mutex_lock(&g_signerContextsMutex);
+    SignerContextNode *current = g_signerContexts;
+    while (current != NULL) {
+        if (current->signer == old_signer) {
+            current->signer = new_signer;
+        }
+        current = current->next;
+    }
     pthread_mutex_unlock(&g_signerContextsMutex);
 }
 
@@ -1178,27 +1197,33 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIE
     return (jlong)(uintptr_t)signer;
 }
 
-// Helper to convert a String[] into a NULL-terminated C string array for the FFI
+// Convert a String[] into a NULL-terminated C string array for the FFI.
+// An empty or NULL input maps to NULL out_array (the FFI's "no entries" sentinel).
 static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***out_array, jstring **out_jstrings, jsize *out_len) {
+    *out_array = NULL;
+    *out_jstrings = NULL;
+    *out_len = 0;
     if (jarray == NULL) {
-        const char **arr = (const char **)malloc(sizeof(const char *));
-        if (arr == NULL) return -1;
-        arr[0] = NULL;
-        *out_array = arr;
-        *out_jstrings = NULL;
-        *out_len = 0;
         return 0;
     }
     jsize len = (*env)->GetArrayLength(env, jarray);
+    if (len == 0) {
+        return 0;
+    }
     const char **arr = (const char **)malloc(sizeof(const char *) * (size_t)(len + 1));
-    if (arr == NULL) return -1;
-    jstring *jstrs = NULL;
-    if (len > 0) {
-        jstrs = (jstring *)malloc(sizeof(jstring) * (size_t)len);
-        if (jstrs == NULL) {
-            free(arr);
-            return -1;
-        }
+    if (arr == NULL) {
+        (*env)->ThrowNew(env,
+                         (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
+                         "Failed to allocate string array");
+        return -1;
+    }
+    jstring *jstrs = (jstring *)malloc(sizeof(jstring) * (size_t)len);
+    if (jstrs == NULL) {
+        free(arr);
+        (*env)->ThrowNew(env,
+                         (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
+                         "Failed to allocate string array");
+        return -1;
     }
     for (jsize i = 0; i < len; i++) {
         jstring js = (jstring)(*env)->GetObjectArrayElement(env, jarray, i);
@@ -1273,12 +1298,19 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeCombineCawg(JNIEn
         return 0;
     }
 
+    struct C2paSigner *c2pa_signer = (struct C2paSigner *)(uintptr_t)c2paHandle;
+    struct C2paSigner *identity_signer = (struct C2paSigner *)(uintptr_t)identityHandle;
     struct C2paSigner *combined = c2pa_identity_signer_create(
-        (struct C2paSigner *)(uintptr_t)c2paHandle,
-        (struct C2paSigner *)(uintptr_t)identityHandle, refs_arr, roles_arr);
+        c2pa_signer, identity_signer, refs_arr, roles_arr);
 
     release_cstring_array(env, refs_arr, refs_jstrs, refs_len);
     release_cstring_array(env, roles_arr, roles_jstrs, roles_len);
+
+    if (combined != NULL) {
+        // Re-key input contexts so callback signers' global refs are freed with the combined signer.
+        rekey_signer_context(c2pa_signer, combined);
+        rekey_signer_context(identity_signer, combined);
+    }
 
     return (jlong)(uintptr_t)combined;
 }

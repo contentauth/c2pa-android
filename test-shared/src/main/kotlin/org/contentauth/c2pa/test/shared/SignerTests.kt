@@ -14,6 +14,13 @@ package org.contentauth.c2pa.test.shared
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
@@ -957,37 +964,68 @@ abstract class SignerTests : TestBase() {
         }
     }
 
-    protected fun assertCawgIdentityInManifest(
-        manifestJson: String,
-        expectedRefs: List<String>,
-    ): String {
-        if (!manifestJson.contains("cawg.identity")) {
+    /**
+     * Assert that the reader JSON contains a well-formed `cawg.identity` assertion: the
+     * assertion is present in the manifest, its `signer_payload.referenced_assertions`
+     * array is non-empty, and the active-manifest validation results include the
+     * `cawg.identity.well-formed` success code. The exact labels that c2pa-rs emits
+     * under `referenced_assertions` are implementation-defined and not asserted here.
+     */
+    protected fun assertCawgIdentityInManifest(manifestJson: String): String {
+        val root = Json.parseToJsonElement(manifestJson).jsonObject
+        val manifests = root["manifests"]?.jsonObject
+            ?: throw AssertionError("Reader JSON has no 'manifests' object. JSON: $manifestJson")
+
+        val cawgAssertions = manifests.values.flatMap { manifestEl ->
+            val assertions = manifestEl.jsonObject["assertions"]?.jsonArray ?: JsonArray(emptyList())
+            assertions.mapNotNull { it as? JsonObject }
+                .filter { it["label"]?.jsonPrimitive?.contentOrNull == "cawg.identity" }
+        }
+        if (cawgAssertions.isEmpty()) {
+            throw AssertionError("Expected a cawg.identity assertion. JSON: $manifestJson")
+        }
+        val foundRefs = cawgAssertions.flatMap { extractReferencedAssertionLabels(it) }
+        if (foundRefs.isEmpty()) {
             throw AssertionError(
-                "Expected manifest to contain a cawg.identity assertion. JSON: $manifestJson",
+                "cawg.identity assertion has no referenced_assertions entries. JSON: $manifestJson",
             )
         }
-        val missing = expectedRefs.filterNot { manifestJson.contains(it) }
-        if (missing.isNotEmpty()) {
+
+        val successCodes = root["validation_results"]?.jsonObject
+            ?.get("activeManifest")?.jsonObject
+            ?.get("success")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.get("code")?.jsonPrimitive?.contentOrNull }
+            ?: emptyList()
+        if ("cawg.identity.well-formed" !in successCodes) {
             throw AssertionError(
-                "cawg.identity assertion missing referenced labels: $missing. JSON: $manifestJson",
+                "validation_results missing cawg.identity.well-formed success code. JSON: $manifestJson",
             )
         }
-        return "cawg.identity present; refs=${expectedRefs.joinToString(",")}"
+
+        return "cawg.identity well-formed; refs=${foundRefs.joinToString(",")}"
     }
 
-    private fun pemSignCallback(privateKeyPem: String): (ByteArray) -> ByteArray = { data ->
-        val keyBytes = Base64.getDecoder().decode(
-            privateKeyPem
-                .replace("-----BEGIN PRIVATE KEY-----", "")
-                .replace("-----END PRIVATE KEY-----", "")
-                .replace("\\s".toRegex(), ""),
-        )
-        val privateKey = KeyFactory.getInstance("EC")
-            .generatePrivate(PKCS8EncodedKeySpec(keyBytes))
-        val sig = Signature.getInstance("SHA256withECDSA")
-        sig.initSign(privateKey)
-        sig.update(data)
-        derToRawSignature(sig.sign(), 32)
+    /**
+     * Extract the assertion labels referenced by a `cawg.identity` assertion. The c2pa-rs
+     * reader emits these under `data.signer_payload.referenced_assertions[*].url` as JUMBF
+     * URIs like `self#jumbf=c2pa.assertions/c2pa.actions`; the label is the last path segment.
+     */
+    private fun extractReferencedAssertionLabels(cawgAssertion: JsonObject): List<String> {
+        val payload = cawgAssertion["data"]?.jsonObject?.get("signer_payload")?.jsonObject
+            ?: return emptyList()
+        val refs = payload["referenced_assertions"]?.jsonArray ?: return emptyList()
+        return refs.mapNotNull { ref ->
+            val obj = ref as? JsonObject ?: return@mapNotNull null
+            val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            url.substringAfterLast('/')
+        }
+    }
+
+    private fun pemSignCallback(
+        privateKeyPem: String,
+        algorithm: SigningAlgorithm = SigningAlgorithm.ES256,
+    ): (ByteArray) -> ByteArray = { data ->
+        SigningHelper.signWithPEMKey(data, privateKeyPem, algorithm.description.uppercase())
     }
 
     suspend fun testCawgCombinedPemSigner(): TestResult = withContext(Dispatchers.IO) {
@@ -1019,7 +1057,7 @@ abstract class SignerTests : TestBase() {
                 }
 
                 val readerJson = C2PA.readFile(destFile.absolutePath)
-                val detail = assertCawgIdentityInManifest(readerJson, listOf("c2pa.actions"))
+                val detail = assertCawgIdentityInManifest(readerJson)
                 TestResult(
                     "CAWG Combined Signer (PEM + PEM)",
                     true,
@@ -1071,7 +1109,7 @@ abstract class SignerTests : TestBase() {
                 }
 
                 val readerJson = C2PA.readFile(destFile.absolutePath)
-                val detail = assertCawgIdentityInManifest(readerJson, listOf("c2pa.actions"))
+                val detail = assertCawgIdentityInManifest(readerJson)
                 TestResult(
                     "CAWG Combined Signer (Callback + Callback)",
                     true,
@@ -1108,13 +1146,13 @@ abstract class SignerTests : TestBase() {
                     "Inputs safely closeable after combine",
                     "no crash",
                 )
-            } catch (t: Throwable) {
+            } catch (e: Exception) {
                 combined.close()
                 TestResult(
                     "CAWG Combined Signer Consumes Inputs",
                     false,
-                    "Closing consumed inputs crashed: ${t.message}",
-                    t::class.simpleName ?: "",
+                    "Closing consumed inputs crashed: ${e.message}",
+                    e::class.simpleName ?: "",
                 )
             }
         }
@@ -1186,7 +1224,7 @@ abstract class SignerTests : TestBase() {
                 }
 
                 val readerJson = C2PA.readFile(destFile.absolutePath)
-                val detail = assertCawgIdentityInManifest(readerJson, listOf("c2pa.actions"))
+                val detail = assertCawgIdentityInManifest(readerJson)
                 TestResult(
                     "CAWG Combined Signer (StrongBox Identity)",
                     true,
