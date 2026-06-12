@@ -28,8 +28,10 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
         }
 
         /**
-         * Per-array entry limit for FFI string array parameters. Mirrors
-         * `MAX_STRING_ARRAY_LEN` in `c2pa.h`.
+         * Per-array slot limit for FFI string array parameters. Mirrors
+         * `MAX_STRING_ARRAY_LEN` in `c2pa.h`. The FFI requires the NULL
+         * terminator to fit within this limit, so each array may carry at most
+         * `MAX_STRING_ARRAY_LEN - 1` entries.
          */
         private const val MAX_STRING_ARRAY_LEN = 256
 
@@ -266,18 +268,19 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * signer, or with another operation that may free the underlying native
          * pointer.
          *
-         * @param c2pa The signer that produces the C2PA claim signature.
+         * @param c2pa The signer that produces the C2PA claim signature. Must
+         *   not be the same instance as [identity] (each input is consumed
+         *   separately).
          * @param identity The signer that produces the CAWG identity assertion.
          * @param referencedAssertions Manifest assertion labels covered by the
-         *   identity assertion (e.g. `"c2pa.actions"`). Each entry must be
-         *   non-empty; the list itself may have up to 256 entries.
+         *   identity assertion (e.g. `"c2pa.actions"`). The list may have up to
+         *   255 entries.
          * @param roles Optional role strings to attach to the identity assertion.
-         *   Each entry must be non-empty; the list itself may have up to 256
-         *   entries.
+         *   The list may have up to 255 entries.
          * @return A combined [Signer] suitable for passing to [Builder.sign].
-         * @throws C2PAError.Api if either input signer is already closed, if
-         *   either list exceeds 256 entries, if any entry is empty, or if the
-         *   underlying FFI call fails.
+         * @throws C2PAError.Api if the two inputs are the same instance, if
+         *   either input signer is already closed, if either list exceeds 255
+         *   entries, or if the underlying FFI call fails.
          * @see Builder.sign
          */
         @JvmStatic
@@ -288,21 +291,18 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             referencedAssertions: List<String>,
             roles: List<String> = emptyList(),
         ): Signer {
+            if (c2pa === identity) {
+                throw C2PAError.Api("c2pa and identity signers must be distinct instances")
+            }
             if (c2pa.ptr == 0L) throw C2PAError.Api("c2pa signer is already closed")
             if (identity.ptr == 0L) throw C2PAError.Api("identity signer is already closed")
-            if (referencedAssertions.size > MAX_STRING_ARRAY_LEN) {
+            if (referencedAssertions.size >= MAX_STRING_ARRAY_LEN) {
                 throw C2PAError.Api(
-                    "referencedAssertions cannot exceed $MAX_STRING_ARRAY_LEN entries",
+                    "referencedAssertions cannot exceed ${MAX_STRING_ARRAY_LEN - 1} entries",
                 )
             }
-            if (roles.size > MAX_STRING_ARRAY_LEN) {
-                throw C2PAError.Api("roles cannot exceed $MAX_STRING_ARRAY_LEN entries")
-            }
-            if (referencedAssertions.any { it.isEmpty() }) {
-                throw C2PAError.Api("referencedAssertions cannot contain empty strings")
-            }
-            if (roles.any { it.isEmpty() }) {
-                throw C2PAError.Api("roles cannot contain empty strings")
+            if (roles.size >= MAX_STRING_ARRAY_LEN) {
+                throw C2PAError.Api("roles cannot exceed ${MAX_STRING_ARRAY_LEN - 1} entries")
             }
 
             return executeC2PAOperation("Failed to combine signers for CAWG identity") {

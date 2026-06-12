@@ -212,6 +212,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(signerTests.testCawgCombinedCallbackSigner())
     results.add(signerTests.testCawgConsumesInputSigners())
     results.add(signerTests.testCawgRejectsClosedSigner())
+    results.add(signerTests.testCawgRejectsInvalidInputs())
     results.add(signerTests.testCawgCombinedStrongBoxIdentity())
 
     // Web Service Tests (if server is available)

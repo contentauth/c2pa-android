@@ -142,6 +142,12 @@ class AndroidSignerTests : SignerTests() {
     }
 
     @Test
+    fun runTestCawgRejectsInvalidInputs() = runBlocking {
+        val result = testCawgRejectsInvalidInputs()
+        assertTrue(result.success, "CAWG Combined Signer Rejects Invalid Inputs test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestCawgCombinedStrongBoxIdentity() = runBlocking {
         val result = testCawgCombinedStrongBoxIdentity()
         assertTrue(result.success, "CAWG Combined Signer (StrongBox Identity) test failed: ${result.message}")
