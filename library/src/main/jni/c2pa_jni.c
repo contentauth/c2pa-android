@@ -770,6 +770,26 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(
     return result;
 }
 
+JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_crjsonNative(JNIEnv *env, jobject obj, jlong readerPtr) {
+    if (readerPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"),
+                         "Reader is not initialized");
+        return NULL;
+    }
+
+    struct C2paReader *reader = (struct C2paReader*)(uintptr_t)readerPtr;
+    char *json = c2pa_reader_crjson(reader);
+
+    if (json == NULL) {
+        throw_c2pa_exception(env, "Failed to generate crJSON from reader");
+        return NULL;
+    }
+
+    jstring result = cstring_to_jstring(env, json);
+    c2pa_free(json);
+    return result;
+}
+
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_remoteUrlNative(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 

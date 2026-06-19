@@ -205,6 +205,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(builderTests.testContextHttpResolverRemoteFetch())
     results.add(builderTests.testContextHttpResolverOkHttpFetch())
     results.add(builderTests.testContextBuilderCallbackErrorPaths())
+    results.add(builderTests.testReaderCrJson())
     results.add(builderTests.testBuilderFromArchive())
     results.add(builderTests.testReaderWithManifestData())
     results.add(builderTests.testJsonRoundTrip())
