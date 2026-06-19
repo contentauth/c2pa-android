@@ -106,6 +106,18 @@ class AndroidSignerTests : SignerTests() {
     }
 
     @Test
+    fun runTestSignWithContextFromSettings() = runBlocking {
+        val result = testSignWithContextFromSettings()
+        assertTrue(result.success, "Sign With Context (settings signer) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSignWithContextWithoutSigner() = runBlocking {
+        val result = testSignWithContextWithoutSigner()
+        assertTrue(result.success, "Sign With Context (no signer) test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestSignerFromSettingsToml() = runBlocking {
         val result = testSignerFromSettingsToml()
         assertTrue(result.success, "Signer From Settings (TOML) test failed: ${result.message}")
