@@ -229,6 +229,7 @@ tasks.register("setupDirectories") {
 
 tasks.register("downloadNativeLibraries") {
     dependsOn("setupDirectories")
+    mustRunAfter("cleanDownloadedLibraries")
 
     val projectDir = layout.projectDirectory
     val downloadDir = rootDir.resolve("downloads")
@@ -240,6 +241,20 @@ tasks.register("downloadNativeLibraries") {
     doLast {
         println("Using C2PA version: $version")
         downloadDir.mkdirs()
+
+        // The existence checks below reuse whatever was downloaded previously, so a
+        // c2paVersion bump must explicitly invalidate stale artifacts.
+        val versionStamp = downloadDir.resolve("c2pa-version.txt")
+        if (versionStamp.takeIf { it.exists() }?.readText()?.trim() != version) {
+            println("C2PA version changed, removing previously downloaded libraries")
+            archMap.keys.forEach { arch ->
+                jniLibsDir.file("$arch/libc2pa_c.so").asFile.delete()
+                downloadDir.resolve("$arch.zip").delete()
+                downloadDir.resolve(arch).deleteRecursively()
+            }
+            destHeader.asFile.delete()
+            versionStamp.writeText(version)
+        }
 
         var headerDownloaded = false
 

@@ -116,4 +116,40 @@ class AndroidSignerTests : SignerTests() {
         val result = testSignerFromSettingsJson()
         assertTrue(result.success, "Signer From Settings (JSON) test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestCawgCombinedPemSigner() = runBlocking {
+        val result = testCawgCombinedPemSigner()
+        assertTrue(result.success, "CAWG Combined Signer (PEM + PEM) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestCawgCombinedCallbackSigner() = runBlocking {
+        val result = testCawgCombinedCallbackSigner()
+        assertTrue(result.success, "CAWG Combined Signer (Callback + Callback) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestCawgConsumesInputSigners() = runBlocking {
+        val result = testCawgConsumesInputSigners()
+        assertTrue(result.success, "CAWG Combined Signer Consumes Inputs test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestCawgRejectsClosedSigner() = runBlocking {
+        val result = testCawgRejectsClosedSigner()
+        assertTrue(result.success, "CAWG Combined Signer Rejects Closed Input test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestCawgRejectsInvalidInputs() = runBlocking {
+        val result = testCawgRejectsInvalidInputs()
+        assertTrue(result.success, "CAWG Combined Signer Rejects Invalid Inputs test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestCawgCombinedStrongBoxIdentity() = runBlocking {
+        val result = testCawgCombinedStrongBoxIdentity()
+        assertTrue(result.success, "CAWG Combined Signer (StrongBox Identity) test failed: ${result.message}")
+    }
 }

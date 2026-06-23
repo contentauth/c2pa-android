@@ -14,9 +14,17 @@ package org.contentauth.c2pa.test.shared
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
+import org.contentauth.c2pa.C2PAError
 import org.contentauth.c2pa.CertificateManager
 import org.contentauth.c2pa.FileStream
 import org.contentauth.c2pa.KeyStoreSigner
@@ -952,6 +960,350 @@ abstract class SignerTests : TestBase() {
                     "Test failed with exception",
                     "${e.javaClass.simpleName}: ${e.message}",
                 )
+            }
+        }
+    }
+
+    /**
+     * Assert that the reader JSON contains a well-formed `cawg.identity` assertion: the
+     * assertion is present in the manifest, its `signer_payload.referenced_assertions`
+     * array is non-empty, and the active-manifest validation results include the
+     * `cawg.identity.well-formed` success code. The exact labels that c2pa-rs emits
+     * under `referenced_assertions` are implementation-defined and not asserted here.
+     */
+    protected fun assertCawgIdentityInManifest(manifestJson: String): String {
+        val root = Json.parseToJsonElement(manifestJson).jsonObject
+        val manifests = root["manifests"]?.jsonObject
+            ?: throw AssertionError("Reader JSON has no 'manifests' object. JSON: $manifestJson")
+
+        val cawgAssertions = manifests.values.flatMap { manifestEl ->
+            val assertions = manifestEl.jsonObject["assertions"]?.jsonArray ?: JsonArray(emptyList())
+            assertions.mapNotNull { it as? JsonObject }
+                .filter { it["label"]?.jsonPrimitive?.contentOrNull == "cawg.identity" }
+        }
+        if (cawgAssertions.isEmpty()) {
+            throw AssertionError("Expected a cawg.identity assertion. JSON: $manifestJson")
+        }
+        val foundRefs = cawgAssertions.flatMap { extractReferencedAssertionLabels(it) }
+        if (foundRefs.isEmpty()) {
+            throw AssertionError(
+                "cawg.identity assertion has no referenced_assertions entries. JSON: $manifestJson",
+            )
+        }
+
+        val successCodes = root["validation_results"]?.jsonObject
+            ?.get("activeManifest")?.jsonObject
+            ?.get("success")?.jsonArray
+            ?.mapNotNull { (it as? JsonObject)?.get("code")?.jsonPrimitive?.contentOrNull }
+            ?: emptyList()
+        if ("cawg.identity.well-formed" !in successCodes) {
+            throw AssertionError(
+                "validation_results missing cawg.identity.well-formed success code. JSON: $manifestJson",
+            )
+        }
+
+        return "cawg.identity well-formed; refs=${foundRefs.joinToString(",")}"
+    }
+
+    /**
+     * Extract the assertion labels referenced by a `cawg.identity` assertion. The c2pa-rs
+     * reader emits these under `data.signer_payload.referenced_assertions[*].url` as JUMBF
+     * URIs like `self#jumbf=c2pa.assertions/c2pa.actions`; the label is the last path segment.
+     */
+    private fun extractReferencedAssertionLabels(cawgAssertion: JsonObject): List<String> {
+        val payload = cawgAssertion["data"]?.jsonObject?.get("signer_payload")?.jsonObject
+            ?: return emptyList()
+        val refs = payload["referenced_assertions"]?.jsonArray ?: return emptyList()
+        return refs.mapNotNull { ref ->
+            val obj = ref as? JsonObject ?: return@mapNotNull null
+            val url = obj["url"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            url.substringAfterLast('/')
+        }
+    }
+
+    private fun pemSignCallback(
+        privateKeyPem: String,
+        algorithm: SigningAlgorithm = SigningAlgorithm.ES256,
+    ): (ByteArray) -> ByteArray = { data ->
+        SigningHelper.signWithPEMKey(data, privateKeyPem, algorithm.name)
+    }
+
+    /**
+     * Sign the test image into a temp file with [signer] (closing it), read the result
+     * back, and assert it carries a well-formed `cawg.identity` assertion. Returns the
+     * detail string produced by [assertCawgIdentityInManifest].
+     */
+    private fun signAndVerifyCawgManifest(signer: Signer, tempPrefix: String): String {
+        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+        val destFile = File.createTempFile(tempPrefix, ".jpg")
+        return try {
+            signer.use { s ->
+                Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                    ByteArrayStream(sourceImageData).use { src ->
+                        FileStream(destFile).use { dst ->
+                            builder.sign("image/jpeg", src, dst, s)
+                        }
+                    }
+                }
+            }
+            assertCawgIdentityInManifest(C2PA.readFile(destFile.absolutePath))
+        } finally {
+            destFile.delete()
+        }
+    }
+
+    suspend fun testCawgCombinedPemSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("CAWG Combined Signer (PEM + PEM)") {
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+
+            val c2paSigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+            val identitySigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+
+            val combined = Signer.withCawgIdentity(
+                c2pa = c2paSigner,
+                identity = identitySigner,
+                referencedAssertions = listOf("c2pa.actions"),
+            )
+
+            val detail = signAndVerifyCawgManifest(combined, "cawg_combined_pem")
+            TestResult(
+                "CAWG Combined Signer (PEM + PEM)",
+                true,
+                "Combined PEM signing succeeded",
+                detail,
+            )
+        }
+    }
+
+    suspend fun testCawgCombinedCallbackSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("CAWG Combined Signer (Callback + Callback)") {
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+
+            val pemSign = pemSignCallback(keyPem)
+
+            val c2paSigner = Signer.withCallback(
+                SigningAlgorithm.ES256,
+                certPem,
+                sign = pemSign,
+            )
+            val identitySigner = Signer.withCallback(
+                SigningAlgorithm.ES256,
+                certPem,
+                sign = pemSign,
+            )
+
+            val combined = Signer.withCawgIdentity(
+                c2pa = c2paSigner,
+                identity = identitySigner,
+                referencedAssertions = listOf("c2pa.actions"),
+            )
+
+            val detail = signAndVerifyCawgManifest(combined, "cawg_combined_callback")
+            TestResult(
+                "CAWG Combined Signer (Callback + Callback)",
+                true,
+                "Combined callback signing succeeded",
+                detail,
+            )
+        }
+    }
+
+    suspend fun testCawgConsumesInputSigners(): TestResult = withContext(Dispatchers.IO) {
+        runTest("CAWG Combined Signer Consumes Inputs") {
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+
+            val c2paSigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+            val identitySigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+
+            val combined = Signer.withCawgIdentity(
+                c2pa = c2paSigner,
+                identity = identitySigner,
+                referencedAssertions = listOf("c2pa.actions"),
+            )
+            try {
+                c2paSigner.close()
+                identitySigner.close()
+                combined.close()
+                combined.close()
+                TestResult(
+                    "CAWG Combined Signer Consumes Inputs",
+                    true,
+                    "Inputs safely closeable after combine",
+                    "no crash",
+                )
+            } catch (e: Exception) {
+                combined.close()
+                TestResult(
+                    "CAWG Combined Signer Consumes Inputs",
+                    false,
+                    "Closing consumed inputs crashed: ${e.message}",
+                    e::class.simpleName ?: "",
+                )
+            }
+        }
+    }
+
+    suspend fun testCawgCombinedStrongBoxIdentity(): TestResult = withContext(Dispatchers.IO) {
+        val signingServerAvailable = isSigningServerAvailable()
+        if (!signingServerAvailable) {
+            return@withContext TestResult(
+                "CAWG Combined Signer (StrongBox Identity)",
+                true,
+                "SKIPPED: Signing server not available",
+                status = TestStatus.SKIPPED,
+            )
+        }
+
+        runTest("CAWG Combined Signer (StrongBox Identity)") {
+            val hasStrongBox = StrongBoxSigner.isAvailable(getContext())
+            if (!hasStrongBox) {
+                return@runTest TestResult(
+                    "CAWG Combined Signer (StrongBox Identity)",
+                    true,
+                    "StrongBox not available on this device (expected)",
+                    "Device does not support StrongBox",
+                )
+            }
+
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+
+            val c2paSigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+
+            val identityKeyTag = "cawg_identity_strongbox_${System.currentTimeMillis()}"
+            val identitySigner = CertificateManager.createStrongBoxSignerWithCSR(
+                algorithm = SigningAlgorithm.ES256,
+                strongBoxConfig = StrongBoxSigner.Config(
+                    keyTag = identityKeyTag,
+                    requireUserAuthentication = false,
+                ),
+                certificateConfig = CertificateManager.CertificateConfig(
+                    commonName = "CAWG StrongBox Identity",
+                    organization = "C2PA Test Suite",
+                    organizationalUnit = "Testing",
+                    country = "US",
+                    state = "CA",
+                    locality = "San Francisco",
+                ),
+                signingServerUrl = getServerUrl(),
+            )
+
+            val combined = Signer.withCawgIdentity(
+                c2pa = c2paSigner,
+                identity = identitySigner,
+                referencedAssertions = listOf("c2pa.actions"),
+            )
+
+            try {
+                val detail = signAndVerifyCawgManifest(combined, "cawg_combined_strongbox")
+                TestResult(
+                    "CAWG Combined Signer (StrongBox Identity)",
+                    true,
+                    "Combined signing with StrongBox identity succeeded",
+                    detail,
+                )
+            } finally {
+                StrongBoxSigner.deleteKey(identityKeyTag)
+            }
+        }
+    }
+
+    suspend fun testCawgRejectsClosedSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("CAWG Combined Signer Rejects Closed Input") {
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+
+            val c2paSigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+            val identitySigner = Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256)
+            identitySigner.close()
+
+            try {
+                Signer.withCawgIdentity(
+                    c2pa = c2paSigner,
+                    identity = identitySigner,
+                    referencedAssertions = listOf("c2pa.actions"),
+                ).close()
+                TestResult(
+                    "CAWG Combined Signer Rejects Closed Input",
+                    false,
+                    "Expected C2PAError but call succeeded",
+                    "no exception",
+                )
+            } catch (e: C2PAError) {
+                TestResult(
+                    "CAWG Combined Signer Rejects Closed Input",
+                    true,
+                    "Threw C2PAError as expected",
+                    e.message ?: "",
+                )
+            } finally {
+                c2paSigner.close()
+            }
+        }
+    }
+
+    suspend fun testCawgRejectsInvalidInputs(): TestResult = withContext(Dispatchers.IO) {
+        runTest("CAWG Combined Signer Rejects Invalid Inputs") {
+            val testName = "CAWG Combined Signer Rejects Invalid Inputs"
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+
+            Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256).use { c2paSigner ->
+                Signer.fromKeys(certPem, keyPem, SigningAlgorithm.ES256).use { identitySigner ->
+                    val failures = mutableListOf<String>()
+
+                    try {
+                        Signer.withCawgIdentity(
+                            c2pa = c2paSigner,
+                            identity = c2paSigner,
+                            referencedAssertions = listOf("c2pa.actions"),
+                        ).close()
+                        failures.add("same-instance signers were accepted")
+                    } catch (e: C2PAError) {
+                        // Expected: aliasing the same signer would consume it twice.
+                    }
+
+                    try {
+                        Signer.withCawgIdentity(
+                            c2pa = c2paSigner,
+                            identity = identitySigner,
+                            referencedAssertions = List(256) { "c2pa.actions" },
+                        ).close()
+                        failures.add("256-entry referencedAssertions list was accepted")
+                    } catch (e: C2PAError) {
+                        // Expected: the FFI's per-array limit allows at most 255 entries.
+                    }
+
+                    // Rejected calls must not have consumed the inputs. Only probe when
+                    // both rejections threw; otherwise the inputs may be consumed and
+                    // the probe would pass a freed signer to the FFI.
+                    if (failures.isEmpty()) {
+                        try {
+                            if (c2paSigner.reserveSize() <= 0) {
+                                failures.add("c2pa signer unusable after rejected calls")
+                            }
+                            if (identitySigner.reserveSize() <= 0) {
+                                failures.add("identity signer unusable after rejected calls")
+                            }
+                        } catch (e: C2PAError) {
+                            failures.add("input signer consumed by a rejected call: ${e.message}")
+                        }
+                    }
+
+                    if (failures.isEmpty()) {
+                        TestResult(
+                            testName,
+                            true,
+                            "Invalid inputs rejected without consuming signers",
+                            "same-instance and oversized list both rejected",
+                        )
+                    } else {
+                        TestResult(testName, false, failures.joinToString("; "), "")
+                    }
+                }
             }
         }
     }

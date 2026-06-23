@@ -28,6 +28,14 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
         }
 
         /**
+         * Per-array slot limit for FFI string array parameters. Mirrors
+         * `MAX_STRING_ARRAY_LEN` in `c2pa.h`. The FFI requires the NULL
+         * terminator to fit within this limit, so each array may carry at most
+         * `MAX_STRING_ARRAY_LEN - 1` entries.
+         */
+        private const val MAX_STRING_ARRAY_LEN = 256
+
+        /**
          * Creates a signer from PEM-encoded certificates and a private key.
          *
          * This is the simplest way to create a signer when you have the certificate chain
@@ -110,8 +118,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          */
         @JvmStatic
         @Throws(C2PAError::class)
-        fun fromSettingsJson(settingsJson: String): Signer =
-            fromSettings(settingsJson, "json")
+        fun fromSettingsJson(settingsJson: String): Signer = fromSettings(settingsJson, "json")
 
         /**
          * Creates a signer from TOML settings configuration.
@@ -156,8 +163,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          */
         @JvmStatic
         @Throws(C2PAError::class)
-        fun fromSettingsToml(settingsToml: String): Signer =
-            fromSettings(settingsToml, "toml")
+        fun fromSettingsToml(settingsToml: String): Signer = fromSettings(settingsToml, "toml")
 
         /**
          * Creates a signer from settings configuration in the specified format.
@@ -237,6 +243,82 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             if (handle == 0L) null else Signer(handle)
         }
 
+        /**
+         * Combine a C2PA claim signer with an X.509 identity signer to produce a
+         * combined signer that emits a `cawg.identity` assertion alongside the C2PA
+         * claim signature.
+         *
+         * Both input signers may be created via any existing factory: [fromKeys],
+         * [fromInfo], [withCallback], or hardware-backed factories such as
+         * [StrongBoxSigner] / [KeyStoreSigner] / [WebServiceSigner]. The combined
+         * signer is then passed to [Builder.sign] like any other signer.
+         *
+         * Ownership: once the underlying FFI call is reached, both input signers
+         * are *consumed* — ownership transfers to the returned signer and neither
+         * input may be used again. The wrapper zeros each input's internal pointer
+         * on consumption, so calling `close()` on the inputs (or wrapping them in
+         * a `use { }` block) is a safe no-op. Only the returned [Signer] must be
+         * closed by the caller. If this method throws *before* the FFI call (e.g.
+         * an input was already closed, or an argument failed validation), the
+         * inputs are NOT consumed and the caller remains responsible for closing
+         * them.
+         *
+         * Thread safety: this method reads each input's internal pointer without
+         * synchronization. Do not call it concurrently with [close] on the same
+         * signer, or with another operation that may free the underlying native
+         * pointer.
+         *
+         * @param c2pa The signer that produces the C2PA claim signature. Must
+         *   not be the same instance as [identity] (each input is consumed
+         *   separately).
+         * @param identity The signer that produces the CAWG identity assertion.
+         * @param referencedAssertions Manifest assertion labels covered by the
+         *   identity assertion (e.g. `"c2pa.actions"`). The list may have up to
+         *   255 entries.
+         * @param roles Optional role strings to attach to the identity assertion.
+         *   The list may have up to 255 entries.
+         * @return A combined [Signer] suitable for passing to [Builder.sign].
+         * @throws C2PAError.Api if the two inputs are the same instance, if
+         *   either input signer is already closed, if either list exceeds 255
+         *   entries, or if the underlying FFI call fails.
+         * @see Builder.sign
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun withCawgIdentity(
+            c2pa: Signer,
+            identity: Signer,
+            referencedAssertions: List<String>,
+            roles: List<String> = emptyList(),
+        ): Signer {
+            if (c2pa === identity) {
+                throw C2PAError.Api("c2pa and identity signers must be distinct instances")
+            }
+            if (c2pa.ptr == 0L) throw C2PAError.Api("c2pa signer is already closed")
+            if (identity.ptr == 0L) throw C2PAError.Api("identity signer is already closed")
+            if (referencedAssertions.size >= MAX_STRING_ARRAY_LEN) {
+                throw C2PAError.Api(
+                    "referencedAssertions cannot exceed ${MAX_STRING_ARRAY_LEN - 1} entries",
+                )
+            }
+            if (roles.size >= MAX_STRING_ARRAY_LEN) {
+                throw C2PAError.Api("roles cannot exceed ${MAX_STRING_ARRAY_LEN - 1} entries")
+            }
+
+            return executeC2PAOperation("Failed to combine signers for CAWG identity") {
+                val handle =
+                    nativeCombineCawg(
+                        c2pa.ptr,
+                        identity.ptr,
+                        referencedAssertions.toTypedArray(),
+                        roles.toTypedArray(),
+                    )
+                c2pa.ptr = 0L
+                identity.ptr = 0L
+                if (handle == 0L) null else Signer(handle)
+            }
+        }
+
         @JvmStatic
         private external fun nativeFromInfo(
             algorithm: String,
@@ -255,6 +337,14 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
 
         @JvmStatic
         private external fun nativeFromSettings(): Long
+
+        @JvmStatic
+        private external fun nativeCombineCawg(
+            c2paHandle: Long,
+            identityHandle: Long,
+            referencedAssertions: Array<String>,
+            roles: Array<String>,
+        ): Long
     }
 
     /** Get the reserve size for this signer */
