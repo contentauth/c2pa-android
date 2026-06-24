@@ -339,6 +339,105 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testContextCancel(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Cancel") {
+            try {
+                // cancel() on an idle context is a valid no-op; it must not throw.
+                C2PAContext.create().use { context ->
+                    context.cancel()
+                }
+                TestResult("Context Cancel", true, "cancel() succeeded on an idle context", null)
+            } catch (e: C2PAError) {
+                TestResult("Context Cancel", false, "cancel() threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextBuilderRejectsConsumedSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Rejects Consumed Signer") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                C2PAContextBuilder.create().use { builder ->
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    signer.close() // consume/close the signer so its pointer is zeroed
+                    try {
+                        builder.setSigner(signer)
+                        TestResult(
+                            "Context Builder Rejects Consumed Signer",
+                            false,
+                            "setSigner accepted a closed signer",
+                            null,
+                        )
+                    } catch (e: C2PAError) {
+                        TestResult(
+                            "Context Builder Rejects Consumed Signer",
+                            true,
+                            "setSigner rejected a closed signer as expected",
+                            e.toString(),
+                        )
+                    }
+                }
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Context Builder Rejects Consumed Signer",
+                    false,
+                    "Setup threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testContextBuilderRejectsConsumedBuilder(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Rejects Reuse") {
+            try {
+                val builder = C2PAContextBuilder.create()
+                builder.build().use { /* first build consumes the builder */ }
+                try {
+                    builder.build()
+                    TestResult(
+                        "Context Builder Rejects Reuse",
+                        false,
+                        "Second build() on a consumed builder succeeded",
+                        null,
+                    )
+                } catch (e: C2PAError) {
+                    TestResult(
+                        "Context Builder Rejects Reuse",
+                        true,
+                        "Second build() on a consumed builder threw as expected",
+                        e.toString(),
+                    )
+                }
+            } catch (e: C2PAError) {
+                TestResult("Context Builder Rejects Reuse", false, "Setup threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextBuilderCloseWithoutBuild(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Close Without Build") {
+            try {
+                // Abandoning a builder without building must free it cleanly via close().
+                C2PAContextBuilder.create().use { /* no build(); use {} closes it */ }
+                TestResult(
+                    "Context Builder Close Without Build",
+                    true,
+                    "Builder closed without building",
+                    null,
+                )
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Context Builder Close Without Build",
+                    false,
+                    "close() without build threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
     suspend fun testBuilderFromArchive(): TestResult = withContext(Dispatchers.IO) {
         runTest("Builder from Archive") {
             val manifestJson = TEST_MANIFEST_JSON
