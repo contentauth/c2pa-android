@@ -22,6 +22,7 @@ import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
 import org.contentauth.c2pa.C2PAError
 import org.contentauth.c2pa.C2PAContext
+import org.contentauth.c2pa.C2PAContextBuilder
 import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.DigitalSourceType
 import org.contentauth.c2pa.FileStream
@@ -278,6 +279,60 @@ abstract class BuilderTests : TestBase() {
                     "Builder Add Ingredient",
                     false,
                     "Failed to create builder",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testContextBuilderWithSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder with Signer") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                // Build a context with settings plus a programmatic signer attached.
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setSigner(signer) // consumes signer
+                        .build()
+                }
+
+                // The resulting context must be usable for creating a builder and signing.
+                val signedSize = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                    builder.sign("image/jpeg", source, dest, signer).size
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val success = signedSize > 0
+                TestResult(
+                    "Context Builder with Signer",
+                    success,
+                    if (success) {
+                        "Context built with signer produced a signed asset"
+                    } else {
+                        "Signing via the built context failed"
+                    },
+                    "Signed size: $signedSize",
+                )
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Context Builder with Signer",
+                    false,
+                    "Context builder flow threw",
                     e.toString(),
                 )
             }

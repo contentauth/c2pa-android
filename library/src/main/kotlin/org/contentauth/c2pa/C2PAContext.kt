@@ -94,6 +94,22 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
         @JvmStatic private external fun nativeNewWithSettings(settingsPtr: Long): Long
     }
 
+    /**
+     * Requests cancellation of an in-flight operation running on this context.
+     *
+     * Intended to be called from another thread while a [Reader] or [Builder] operation created
+     * from this context is in progress; the SDK returns an error at the next safe stopping point.
+     *
+     * @throws C2PAError.Api if the cancellation request fails
+     */
+    @Throws(C2PAError::class)
+    fun cancel() {
+        val result = cancelNative(ptr)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to cancel context operation")
+        }
+    }
+
     override fun close() {
         if (ptr != 0L) {
             free(ptr)
@@ -102,4 +118,5 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
     }
 
     private external fun free(handle: Long)
+    private external fun cancelNative(handle: Long): Int
 }

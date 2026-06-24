@@ -70,6 +70,12 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestContextBuilderWithSigner() = runBlocking {
+        val result = testContextBuilderWithSigner()
+        assertTrue(result.success, "Context Builder with Signer test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestBuilderFromArchive() = runBlocking {
         val result = testBuilderFromArchive()
         assertTrue(result.success, "Builder from Archive test failed: ${result.message}")
