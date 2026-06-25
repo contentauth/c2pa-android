@@ -645,6 +645,48 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testBuilderEmbeddableErrorPaths(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Builder Embeddable Error Paths") {
+            // Exercise the error-return branches of the embeddable methods. Each op is invoked in a
+            // state the core rejects: placeholder/signEmbeddable need a signer on the context
+            // (Builder.fromJson has none), and setDataHashExclusions fails with no DataHash assertion
+            // (no placeholder). Each must throw C2PAError. (setFixedSizeMerkle is not checked here: it
+            // just records the chunk size and succeeds without a DataHash, so it has no reachable
+            // error state on a fresh builder.)
+            val unexpectedSuccess = mutableListOf<String>()
+            fun expectThrows(label: String, block: () -> Unit) {
+                try {
+                    block()
+                    unexpectedSuccess.add(label)
+                } catch (e: C2PAError) {
+                    // expected
+                }
+            }
+
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("placeholder") { b.placeholder("image/jpeg") }
+            }
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("signEmbeddable") { b.signEmbeddable("image/jpeg") }
+            }
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("setDataHashExclusions") { b.setDataHashExclusions(listOf(0L to 2L)) }
+            }
+
+            val success = unexpectedSuccess.isEmpty()
+            TestResult(
+                "Builder Embeddable Error Paths",
+                success,
+                if (success) {
+                    "All checked embeddable error paths rejected invalid state as expected"
+                } else {
+                    "Did not throw for: ${unexpectedSuccess.joinToString()}"
+                },
+                "Checked 3 error paths; unexpected successes: ${unexpectedSuccess.size}",
+            )
+        }
+    }
+
     suspend fun testBuilderFromArchive(): TestResult = withContext(Dispatchers.IO) {
         runTest("Builder from Archive") {
             val manifestJson = TEST_MANIFEST_JSON
