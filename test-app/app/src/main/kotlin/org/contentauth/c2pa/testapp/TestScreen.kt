@@ -194,6 +194,8 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(builderTests.testContextBuilderCloseWithoutBuild())
     results.add(builderTests.testEmbeddableAndPlaceholder())
     results.add(builderTests.testBuilderHashType())
+    results.add(builderTests.testSignEmbeddableDataHash())
+    results.add(builderTests.testBmffMerkleHashing())
     results.add(builderTests.testBuilderFromArchive())
     results.add(builderTests.testReaderWithManifestData())
     results.add(builderTests.testJsonRoundTrip())

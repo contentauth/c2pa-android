@@ -442,19 +442,39 @@ abstract class BuilderTests : TestBase() {
     suspend fun testEmbeddableAndPlaceholder(): TestResult = withContext(Dispatchers.IO) {
         runTest("Embeddable and Placeholder") {
             try {
-                // Placeholder composition + needsPlaceholder + setDataHashExclusions.
-                // placeholder() creates the DataHash assertion that exclusions then attach to.
-                val placeholderBytes = Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
-                    builder.needsPlaceholder("image/jpeg")
-                    val placeholder = builder.placeholder("image/jpeg")
-                    builder.setDataHashExclusions(listOf(0L to 2L))
-                    placeholder
-                }
-
-                // formatEmbeddable over manifest bytes produced by a no-embed sign.
                 val certPem = loadResourceAsString("es256_certs")
                 val keyPem = loadResourceAsString("es256_private")
                 val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                // placeholder() reserves space sized to the signature, so the signer must be on the
+                // context. Canonical placeholder workflow (mirrors the c2pa-rs data_hash example):
+                // placeholder -> embed after the JPEG SOI marker -> register the exclusion ->
+                // hash the asset -> signEmbeddable patches the reserved slot.
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    C2PAContextBuilder.create().setSettings(settings).setSigner(signer).build()
+                }
+                val placeholderBytes = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        builder.needsPlaceholder("image/jpeg")
+                        val placeholder = builder.placeholder("image/jpeg")
+                        val manifestPos = 2 // after the JPEG SOI marker
+                        val embedded = sourceImageData.copyOfRange(0, manifestPos) +
+                            placeholder +
+                            sourceImageData.copyOfRange(manifestPos, sourceImageData.size)
+                        builder.setDataHashExclusions(listOf(manifestPos.toLong() to placeholder.size.toLong()))
+                        ByteArrayStream(embedded).use { source ->
+                            builder.updateHashFromStream("image/jpeg", source)
+                        }
+                        builder.signEmbeddable("image/jpeg") // placeholder mode: patches the reserved slot
+                        placeholder
+                    }
+                }
+
+                // formatEmbeddable wraps a raw (application/c2pa) manifest from a no-embed sign.
                 val formattedSize = Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
                     builder.setNoEmbed()
                     ByteArrayStream(sourceImageData).use { source ->
@@ -514,6 +534,111 @@ abstract class BuilderTests : TestBase() {
                     "Builder Hash Type",
                     false,
                     "hashType threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testSignEmbeddableDataHash(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Sign Embeddable (data hash)") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                // Context carries the signer; signEmbeddable obtains it from the context.
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    C2PAContextBuilder.create().setSettings(settings).setSigner(signer).build()
+                }
+
+                // Direct mode (no placeholder): hash the whole stream to create a DataHash,
+                // then sign embeddable. Mirrors c2pa-rs c-ffi test_data_hash_embeddable_workflow.
+                val embeddable = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        builder.needsPlaceholder("image/jpeg")
+                        ByteArrayStream(sourceImageData).use { source ->
+                            builder.updateHashFromStream("image/jpeg", source)
+                        }
+                        builder.signEmbeddable("image/jpeg")
+                    }
+                }
+
+                val success = embeddable.isNotEmpty()
+                TestResult(
+                    "Sign Embeddable (data hash)",
+                    success,
+                    if (success) {
+                        "Direct-mode embeddable manifest produced (${embeddable.size} bytes)"
+                    } else {
+                        "Embeddable manifest was empty"
+                    },
+                    "Embeddable size: ${embeddable.size}",
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Sign Embeddable (data hash)",
+                    false,
+                    "signEmbeddable (direct) flow threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testBmffMerkleHashing(): TestResult = withContext(Dispatchers.IO) {
+        runTest("BMFF Merkle Hashing") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+                val videoData = loadSharedResourceAsBytes("video1.mp4")
+                    ?: throw IllegalArgumentException("Resource not found: video1.mp4")
+
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    C2PAContextBuilder.create().setSettings(settings).setSigner(signer).build()
+                }
+
+                // Fragmented BMFF (placeholder) workflow. Mirrors c2pa-rs c-ffi
+                // test_bmff_embeddable_workflow_with_mdat_hashes: a placeholder creates the
+                // BmffHash with Merkle slots, fixed-size Merkle splits the mdat into 1 KB
+                // chunks, a dummy mdat leaf hash exercises the path (the asset won't validate),
+                // and update_hash_from_stream hashes the non-mdat bytes from the real asset.
+                val embeddable = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        builder.placeholder("video/mp4")
+                        builder.setFixedSizeMerkle(1)
+                        builder.hashMdatBytes(0, ByteArray(4096) { 0xAB.toByte() }, true)
+                        ByteArrayStream(videoData).use { source ->
+                            builder.updateHashFromStream("video/mp4", source)
+                        }
+                        builder.signEmbeddable("video/mp4")
+                    }
+                }
+
+                val success = embeddable.isNotEmpty()
+                TestResult(
+                    "BMFF Merkle Hashing",
+                    success,
+                    if (success) {
+                        "Fragmented BMFF embeddable produced (${embeddable.size} bytes)"
+                    } else {
+                        "Embeddable manifest was empty"
+                    },
+                    "Video bytes: ${videoData.size}, Embeddable size: ${embeddable.size}",
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "BMFF Merkle Hashing",
+                    false,
+                    "BMFF Merkle flow threw",
                     e.toString(),
                 )
             }

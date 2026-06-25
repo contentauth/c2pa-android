@@ -112,6 +112,18 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestSignEmbeddableDataHash() = runBlocking {
+        val result = testSignEmbeddableDataHash()
+        assertTrue(result.success, "Sign Embeddable (data hash) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBmffMerkleHashing() = runBlocking {
+        val result = testBmffMerkleHashing()
+        assertTrue(result.success, "BMFF Merkle Hashing test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestBuilderFromArchive() = runBlocking {
         val result = testBuilderFromArchive()
         assertTrue(result.success, "Builder from Archive test failed: ${result.message}")
