@@ -70,6 +70,36 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestContextBuilderWithSigner() = runBlocking {
+        val result = testContextBuilderWithSigner()
+        assertTrue(result.success, "Context Builder with Signer test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextCancel() = runBlocking {
+        val result = testContextCancel()
+        assertTrue(result.success, "Context Cancel test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextBuilderRejectsConsumedSigner() = runBlocking {
+        val result = testContextBuilderRejectsConsumedSigner()
+        assertTrue(result.success, "Context Builder Rejects Consumed Signer test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextBuilderRejectsConsumedBuilder() = runBlocking {
+        val result = testContextBuilderRejectsConsumedBuilder()
+        assertTrue(result.success, "Context Builder Rejects Reuse test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextBuilderCloseWithoutBuild() = runBlocking {
+        val result = testContextBuilderCloseWithoutBuild()
+        assertTrue(result.success, "Context Builder Close Without Build test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestBuilderFromArchive() = runBlocking {
         val result = testBuilderFromArchive()
         assertTrue(result.success, "Builder from Archive test failed: ${result.message}")

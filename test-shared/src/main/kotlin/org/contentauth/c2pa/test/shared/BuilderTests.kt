@@ -22,6 +22,7 @@ import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
 import org.contentauth.c2pa.C2PAError
 import org.contentauth.c2pa.C2PAContext
+import org.contentauth.c2pa.C2PAContextBuilder
 import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.DigitalSourceType
 import org.contentauth.c2pa.FileStream
@@ -278,6 +279,159 @@ abstract class BuilderTests : TestBase() {
                     "Builder Add Ingredient",
                     false,
                     "Failed to create builder",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testContextBuilderWithSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder with Signer") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                // Build a context with settings plus a programmatic signer attached.
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setSigner(signer) // consumes signer
+                        .build()
+                }
+
+                // The resulting context must be usable for creating a builder and signing.
+                val signedSize = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                    builder.sign("image/jpeg", source, dest, signer).size
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val success = signedSize > 0
+                TestResult(
+                    "Context Builder with Signer",
+                    success,
+                    if (success) {
+                        "Context built with signer produced a signed asset"
+                    } else {
+                        "Signing via the built context failed"
+                    },
+                    "Signed size: $signedSize",
+                )
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Context Builder with Signer",
+                    false,
+                    "Context builder flow threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testContextCancel(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Cancel") {
+            try {
+                // cancel() on an idle context is a valid no-op; it must not throw.
+                C2PAContext.create().use { context ->
+                    context.cancel()
+                }
+                TestResult("Context Cancel", true, "cancel() succeeded on an idle context", null)
+            } catch (e: C2PAError) {
+                TestResult("Context Cancel", false, "cancel() threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextBuilderRejectsConsumedSigner(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Rejects Consumed Signer") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                C2PAContextBuilder.create().use { builder ->
+                    val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+                    signer.close() // consume/close the signer so its pointer is zeroed
+                    try {
+                        builder.setSigner(signer)
+                        TestResult(
+                            "Context Builder Rejects Consumed Signer",
+                            false,
+                            "setSigner accepted a closed signer",
+                            null,
+                        )
+                    } catch (e: C2PAError) {
+                        TestResult(
+                            "Context Builder Rejects Consumed Signer",
+                            true,
+                            "setSigner rejected a closed signer as expected",
+                            e.toString(),
+                        )
+                    }
+                }
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Context Builder Rejects Consumed Signer",
+                    false,
+                    "Setup threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testContextBuilderRejectsConsumedBuilder(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Rejects Reuse") {
+            try {
+                val builder = C2PAContextBuilder.create()
+                builder.build().use { /* first build consumes the builder */ }
+                try {
+                    builder.build()
+                    TestResult(
+                        "Context Builder Rejects Reuse",
+                        false,
+                        "Second build() on a consumed builder succeeded",
+                        null,
+                    )
+                } catch (e: C2PAError) {
+                    TestResult(
+                        "Context Builder Rejects Reuse",
+                        true,
+                        "Second build() on a consumed builder threw as expected",
+                        e.toString(),
+                    )
+                }
+            } catch (e: C2PAError) {
+                TestResult("Context Builder Rejects Reuse", false, "Setup threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextBuilderCloseWithoutBuild(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Close Without Build") {
+            try {
+                // Abandoning a builder without building must free it cleanly via close().
+                C2PAContextBuilder.create().use { /* no build(); use {} closes it */ }
+                TestResult(
+                    "Context Builder Close Without Build",
+                    true,
+                    "Builder closed without building",
+                    null,
+                )
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Context Builder Close Without Build",
+                    false,
+                    "close() without build threw",
                     e.toString(),
                 )
             }

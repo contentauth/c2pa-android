@@ -1471,6 +1471,61 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_free(JNIEnv *env, j
     }
 }
 
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContext_cancelNative(JNIEnv *env, jobject obj, jlong contextPtr) {
+    if (contextPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Context cannot be null");
+        return -1;
+    }
+    return c2pa_context_cancel((struct C2paContext*)(uintptr_t)contextPtr);
+}
+
+// Context builder methods
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_nativeNew(JNIEnv *env, jclass clazz) {
+    struct C2paContextBuilder *builder = c2pa_context_builder_new();
+    return (jlong)(uintptr_t)builder;
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSettingsNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong settingsPtr) {
+    if (builderPtr == 0 || settingsPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and settings cannot be null");
+        return -1;
+    }
+    return c2pa_context_builder_set_settings(
+        (struct C2paContextBuilder*)(uintptr_t)builderPtr,
+        (struct C2paSettings*)(uintptr_t)settingsPtr
+    );
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr) {
+    if (builderPtr == 0 || signerPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and signer cannot be null");
+        return -1;
+    }
+    // The FFI consumes the signer; the Kotlin wrapper zeros its pointer on success.
+    return c2pa_context_builder_set_signer(
+        (struct C2paContextBuilder*)(uintptr_t)builderPtr,
+        (struct C2paSigner*)(uintptr_t)signerPtr
+    );
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_buildNative(JNIEnv *env, jobject obj, jlong builderPtr) {
+    if (builderPtr == 0) {
+        return 0;
+    }
+    // build consumes the builder regardless of outcome.
+    struct C2paContext *context = c2pa_context_builder_build((struct C2paContextBuilder*)(uintptr_t)builderPtr);
+    return (jlong)(uintptr_t)context;
+}
+
+JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_free(JNIEnv *env, jobject obj, jlong builderPtr) {
+    if (builderPtr != 0) {
+        c2pa_free((const void*)(uintptr_t)builderPtr);
+    }
+}
+
 // Builder context-based methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromContext(JNIEnv *env, jclass clazz, jlong contextPtr) {
     if (contextPtr == 0) {
