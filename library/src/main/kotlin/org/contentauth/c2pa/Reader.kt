@@ -158,7 +158,17 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
                 if (handle == 0L) null else Reader(handle)
             }
 
+        /**
+         * Returns the MIME types the reader supports for parsing.
+         *
+         * @return The supported MIME types (e.g. "image/jpeg"), or an empty list if none
+         */
+        @JvmStatic
+        fun supportedMimeTypes(): List<String> = supportedMimeTypesNative()?.toList() ?: emptyList()
+
         @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
+
+        @JvmStatic private external fun supportedMimeTypesNative(): Array<String>?
 
         @JvmStatic private external fun fromStreamNative(format: String, streamHandle: Long): Long
 
