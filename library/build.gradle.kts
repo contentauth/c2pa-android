@@ -174,9 +174,16 @@ tasks.register<JacocoReport>("jacocoInstrumentedTestReport") {
         fileTree(layout.buildDirectory.dir("intermediates/javac/debug")) { exclude(fileFilter) }
     val kotlinDebugTree =
         fileTree(layout.buildDirectory.dir("tmp/kotlin-classes/debug")) { exclude(fileFilter) }
+    // AGP's built-in Kotlin compilation emits library classes here. The tmp/kotlin-classes path
+    // above is empty on that layout, which left the report with "No class files specified".
+    // Both are listed so the report is robust across AGP layouts (non-existent dirs are ignored).
+    val kotlinBuiltInTree =
+        fileTree(layout.buildDirectory.dir("intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes")) {
+            exclude(fileFilter)
+        }
 
     sourceDirectories.setFrom(files("src/main/kotlin", "src/main/java"))
-    classDirectories.setFrom(files(debugTree, kotlinDebugTree))
+    classDirectories.setFrom(files(debugTree, kotlinDebugTree, kotlinBuiltInTree))
 
     executionData.setFrom(
         fileTree(layout.buildDirectory) {
