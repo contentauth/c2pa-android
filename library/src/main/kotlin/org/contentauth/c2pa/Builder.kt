@@ -292,6 +292,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
          */
         @JvmStatic
         fun supportedMimeTypes(): List<String> = supportedMimeTypesNative()?.toList() ?: emptyList()
+
+        /**
          * Wraps raw manifest bytes into a format-specific embeddable block.
          *
          * Use this to convert the bytes produced by [signDataHashedEmbeddable] or

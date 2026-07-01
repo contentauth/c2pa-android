@@ -121,6 +121,9 @@ class AndroidBuilderTests : BuilderTests() {
     fun runTestBuilderArchiveErrorPaths() = runBlocking {
         val result = testBuilderArchiveErrorPaths()
         assertTrue(result.success, "Builder Archive Error Paths test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestEmbeddableAndPlaceholder() = runBlocking {
         val result = testEmbeddableAndPlaceholder()
         assertTrue(result.success, "Embeddable and Placeholder test failed: ${result.message}")

@@ -518,72 +518,6 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
-    suspend fun testBuilderIngredientArchive(): TestResult = withContext(Dispatchers.IO) {
-        runTest("Builder Ingredient Archive") {
-            val ingredientId = "archive-ingredient-1"
-            // write_ingredient_archive matches the id against the ingredient's label first, then
-            // instance_id; a producer-supplied label is the reliable, round-trip-preserved key
-            // (a caller-set instance_id is not guaranteed to survive). Mirror the c2pa-rs reference.
-            val ingredientJson =
-                """{"title": "Archive Ingredient", "format": "image/jpeg", "relationship": "componentOf", "label": "$ingredientId"}"""
-            // generate_c2pa_archive must be enabled for writeIngredientArchive to succeed.
-            val settingsJson =
-                """
-                {
-                    "version": 1,
-                    "builder": {
-                        "generate_c2pa_archive": true,
-                        "created_assertion_labels": ["c2pa.actions", "c2pa.ingredient.v3"]
-                    }
-                }
-                """.trimIndent()
-
-            try {
-                // Export: build an ingredient archive from one builder.
-                val settings = C2PASettings.create().apply { updateFromString(settingsJson, "json") }
-                val archiveData =
-                    try {
-                        C2PAContext.fromSettings(settings).use { context ->
-                            Builder.fromContext(context).withDefinition(TEST_MANIFEST_JSON).use { ingredientBuilder ->
-                                val ingredientImageData = loadResourceAsBytes("pexels_asadphoto_457882")
-                                ByteArrayStream(ingredientImageData).use { ingredientStream ->
-                                    ingredientBuilder.addIngredient(ingredientJson, "image/jpeg", ingredientStream)
-                                }
-                                ByteArrayStream().use { archiveStream ->
-                                    ingredientBuilder.writeIngredientArchive(ingredientId, archiveStream)
-                                    archiveStream.getData()
-                                }
-                            }
-                        }
-                    } finally {
-                        settings.close()
-                    }
-
-                // Import: load that archive into a parent builder.
-                var imported = false
-                Builder.fromJson(TEST_MANIFEST_JSON).use { parentBuilder ->
-                    ByteArrayStream(archiveData).use { archiveStream ->
-                        parentBuilder.addIngredientFromArchive(archiveStream)
-                        imported = true
-                    }
-                }
-
-                val success = archiveData.isNotEmpty() && imported
-                TestResult(
-                    "Builder Ingredient Archive",
-                    success,
-                    if (success) {
-                        "Ingredient archive round-trip succeeded"
-                    } else {
-                        "Ingredient archive round-trip failed"
-                    },
-                    "Archive size: ${archiveData.size} bytes, Imported: $imported",
-                )
-            } catch (e: C2PAError) {
-                TestResult(
-                    "Builder Ingredient Archive",
-                    false,
-                    "Ingredient archive round-trip threw",
     suspend fun testEmbeddableAndPlaceholder(): TestResult = withContext(Dispatchers.IO) {
         runTest("Embeddable and Placeholder") {
             try {
@@ -790,13 +724,6 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
-    suspend fun testBuilderArchiveErrorPaths(): TestResult = withContext(Dispatchers.IO) {
-        runTest("Builder Archive Error Paths") {
-            // Exercise the error-return branches of the ingredient-archive methods. On a default
-            // Builder.fromJson: writeIngredientArchive fails because generate_c2pa_archive is not
-            // enabled, and addIngredientFromArchive fails on bytes that are not a valid archive.
-            // (setBasePath is not checked: it just stores the path and succeeds, so it has no
-            // reachable error state.)
     suspend fun testBuilderEmbeddableErrorPaths(): TestResult = withContext(Dispatchers.IO) {
         runTest("Builder Embeddable Error Paths") {
             // Exercise the error-return branches of the embeddable methods. Each op is invoked in a
@@ -816,6 +743,119 @@ abstract class BuilderTests : TestBase() {
             }
 
             Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("placeholder") { b.placeholder("image/jpeg") }
+            }
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("signEmbeddable") { b.signEmbeddable("image/jpeg") }
+            }
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("setDataHashExclusions") { b.setDataHashExclusions(listOf(0L to 2L)) }
+            }
+
+            val success = unexpectedSuccess.isEmpty()
+            TestResult(
+                "Builder Embeddable Error Paths",
+                success,
+                if (success) {
+                    "All checked embeddable error paths rejected invalid state as expected"
+                } else {
+                    "Did not throw for: ${unexpectedSuccess.joinToString()}"
+                },
+                "Checked 3 error paths; unexpected successes: ${unexpectedSuccess.size}",
+            )
+        }
+    }
+
+    suspend fun testBuilderIngredientArchive(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Builder Ingredient Archive") {
+            val ingredientId = "archive-ingredient-1"
+            // write_ingredient_archive matches the id against the ingredient's label first, then
+            // instance_id; a producer-supplied label is the reliable, round-trip-preserved key
+            // (a caller-set instance_id is not guaranteed to survive). Mirror the c2pa-rs reference.
+            val ingredientJson =
+                """{"title": "Archive Ingredient", "format": "image/jpeg", "relationship": "componentOf", "label": "$ingredientId"}"""
+            // generate_c2pa_archive must be enabled for writeIngredientArchive to succeed.
+            val settingsJson =
+                """
+                {
+                    "version": 1,
+                    "builder": {
+                        "generate_c2pa_archive": true,
+                        "created_assertion_labels": ["c2pa.actions", "c2pa.ingredient.v3"]
+                    }
+                }
+                """.trimIndent()
+
+            try {
+                // Export: build an ingredient archive from one builder.
+                val settings = C2PASettings.create().apply { updateFromString(settingsJson, "json") }
+                val archiveData =
+                    try {
+                        C2PAContext.fromSettings(settings).use { context ->
+                            Builder.fromContext(context).withDefinition(TEST_MANIFEST_JSON).use { ingredientBuilder ->
+                                val ingredientImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                                ByteArrayStream(ingredientImageData).use { ingredientStream ->
+                                    ingredientBuilder.addIngredient(ingredientJson, "image/jpeg", ingredientStream)
+                                }
+                                ByteArrayStream().use { archiveStream ->
+                                    ingredientBuilder.writeIngredientArchive(ingredientId, archiveStream)
+                                    archiveStream.getData()
+                                }
+                            }
+                        }
+                    } finally {
+                        settings.close()
+                    }
+
+                // Import: load that archive into a parent builder.
+                var imported = false
+                Builder.fromJson(TEST_MANIFEST_JSON).use { parentBuilder ->
+                    ByteArrayStream(archiveData).use { archiveStream ->
+                        parentBuilder.addIngredientFromArchive(archiveStream)
+                        imported = true
+                    }
+                }
+
+                val success = archiveData.isNotEmpty() && imported
+                TestResult(
+                    "Builder Ingredient Archive",
+                    success,
+                    if (success) {
+                        "Ingredient archive round-trip succeeded"
+                    } else {
+                        "Ingredient archive round-trip failed"
+                    },
+                    "Archive size: ${archiveData.size} bytes, Imported: $imported",
+                )
+            } catch (e: C2PAError) {
+                TestResult(
+                    "Builder Ingredient Archive",
+                    false,
+                    "Ingredient archive round-trip threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testBuilderArchiveErrorPaths(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Builder Archive Error Paths") {
+            // Exercise the error-return branches of the ingredient-archive methods. On a default
+            // Builder.fromJson: writeIngredientArchive fails because generate_c2pa_archive is not
+            // enabled, and addIngredientFromArchive fails on bytes that are not a valid archive.
+            // (setBasePath is not checked: it just stores the path and succeeds, so it has no
+            // reachable error state.)
+            val unexpectedSuccess = mutableListOf<String>()
+            fun expectThrows(label: String, block: () -> Unit) {
+                try {
+                    block()
+                    unexpectedSuccess.add(label)
+                } catch (e: C2PAError) {
+                    // expected
+                }
+            }
+
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
                 ByteArrayStream().use { dest ->
                     expectThrows("writeIngredientArchive") { b.writeIngredientArchive("missing", dest) }
                 }
@@ -824,13 +864,6 @@ abstract class BuilderTests : TestBase() {
                 ByteArrayStream(byteArrayOf(0x00, 0x01, 0x02, 0x03)).use { bogus ->
                     expectThrows("addIngredientFromArchive") { b.addIngredientFromArchive(bogus) }
                 }
-                expectThrows("placeholder") { b.placeholder("image/jpeg") }
-            }
-            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
-                expectThrows("signEmbeddable") { b.signEmbeddable("image/jpeg") }
-            }
-            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
-                expectThrows("setDataHashExclusions") { b.setDataHashExclusions(listOf(0L to 2L)) }
             }
 
             val success = unexpectedSuccess.isEmpty()
@@ -843,14 +876,6 @@ abstract class BuilderTests : TestBase() {
                     "Did not throw for: ${unexpectedSuccess.joinToString()}"
                 },
                 "Checked 2 error paths; unexpected successes: ${unexpectedSuccess.size}",
-                "Builder Embeddable Error Paths",
-                success,
-                if (success) {
-                    "All checked embeddable error paths rejected invalid state as expected"
-                } else {
-                    "Did not throw for: ${unexpectedSuccess.joinToString()}"
-                },
-                "Checked 3 error paths; unexpected successes: ${unexpectedSuccess.size}",
             )
         }
     }
@@ -1559,3 +1584,4 @@ abstract class BuilderTests : TestBase() {
         }
     }
 }
+
