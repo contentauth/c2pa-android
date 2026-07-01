@@ -285,9 +285,28 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
             return builder
         }
 
+        /**
+         * Wraps raw manifest bytes into a format-specific embeddable block.
+         *
+         * Use this to convert the bytes produced by [signDataHashedEmbeddable] or
+         * [signEmbeddable] into a block ready to embed in an asset of the given format.
+         *
+         * @param format The MIME type of the target asset (e.g. "image/jpeg")
+         * @param manifestBytes The raw manifest bytes to wrap
+         * @return The embeddable manifest bytes for the given format
+         * @throws C2PAError.Api if the bytes cannot be formatted
+         */
+        @JvmStatic
+        @Throws(C2PAError::class)
+        fun formatEmbeddable(format: String, manifestBytes: ByteArray): ByteArray =
+            formatEmbeddableNative(format, manifestBytes)
+                ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to format embeddable manifest")
+
         @JvmStatic private external fun nativeFromArchive(streamHandle: Long): Long
 
         @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
+
+        @JvmStatic private external fun formatEmbeddableNative(format: String, manifestData: ByteArray): ByteArray?
     }
 
     /**
@@ -550,6 +569,151 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         return result
     }
 
+    /**
+     * Signs the manifest and returns embeddable manifest bytes for caller-managed embedding.
+     *
+     * Unlike [sign], this does not write a signed asset; it returns the manifest bytes so the
+     * caller controls how/where they are embedded. Requires a valid hard-binding assertion.
+     *
+     * @param format The MIME type of the target asset (e.g. "image/jpeg")
+     * @return The signed, embeddable manifest bytes
+     * @throws C2PAError.Api if signing fails
+     */
+    @Throws(C2PAError::class)
+    fun signEmbeddable(format: String): ByteArray =
+        signEmbeddableNative(ptr, format)
+            ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign embeddable")
+
+    /**
+     * Returns the composed placeholder manifest bytes for the given format.
+     *
+     * The placeholder reserves space in the asset for a manifest that will be signed later in a
+     * deferred (data-hashed) signing workflow.
+     *
+     * @param format The MIME type of the target asset (e.g. "image/jpeg")
+     * @return The composed placeholder bytes
+     * @throws C2PAError.Api if the placeholder cannot be created
+     */
+    @Throws(C2PAError::class)
+    fun placeholder(format: String): ByteArray =
+        placeholderNative(ptr, format)
+            ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to create placeholder")
+
+    /**
+     * Returns whether a placeholder manifest is required for the given format.
+     *
+     * @param format The MIME type of the target asset (e.g. "image/jpeg")
+     * @return `true` if a placeholder is required, `false` otherwise
+     * @throws C2PAError.Api if the requirement cannot be determined
+     */
+    @Throws(C2PAError::class)
+    fun needsPlaceholder(format: String): Boolean {
+        val result = needsPlaceholderNative(ptr, format)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to determine placeholder requirement")
+        }
+        return result == 1
+    }
+
+    /**
+     * Sets the byte exclusion ranges on the builder's DataHash assertion.
+     *
+     * Each pair is `(start, length)` in bytes. Requires [placeholder] to have been called first so
+     * a DataHash assertion exists.
+     *
+     * @param exclusions The byte ranges to exclude from the data hash, as `(start, length)` pairs
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if the exclusions cannot be set
+     */
+    @Throws(C2PAError::class)
+    fun setDataHashExclusions(exclusions: List<Pair<Long, Long>>): Builder {
+        val flat = LongArray(exclusions.size * 2)
+        exclusions.forEachIndexed { i, (start, length) ->
+            flat[i * 2] = start
+            flat[i * 2 + 1] = length
+        }
+        val result = setDataHashExclusionsNative(ptr, flat)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to set data hash exclusions")
+        }
+        return this
+    }
+
+    /**
+     * Enables fixed-size Merkle-tree hashing for fragmented (BMFF) assets.
+     *
+     * Produces a Merkle tree per `mdat` with fixed-size leaves, for efficient hashing of large
+     * assets. Requires that a placeholder has been created on the builder first.
+     *
+     * @param fixedSizeKb Fixed leaf block size, in KB
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if the setting cannot be applied
+     */
+    @Throws(C2PAError::class)
+    fun setFixedSizeMerkle(fixedSizeKb: Long): Builder {
+        val result = setFixedSizeMerkleNative(ptr, fixedSizeKb)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to set fixed size merkle")
+        }
+        return this
+    }
+
+    /**
+     * Generates `mdat` leaf hashes for a chunk of fragmented-media data.
+     *
+     * Supply chunks in the order they are written to the `mdat`. `mdatId` starts at 0 and
+     * increments for each `mdat` in the asset.
+     *
+     * @param mdatId The mdat index (0-based)
+     * @param data The mdat chunk bytes
+     * @param largeSize Whether the mdat uses 64-bit (large) box sizing
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if hashing fails
+     */
+    @Throws(C2PAError::class)
+    fun hashMdatBytes(mdatId: Long, data: ByteArray, largeSize: Boolean): Builder {
+        val result = hashMdatBytesNative(ptr, mdatId, data, largeSize)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to hash mdat bytes")
+        }
+        return this
+    }
+
+    /**
+     * Updates the builder's hash by reading the asset from a stream.
+     *
+     * For DataHash workflows, register data-hash exclusions before calling this.
+     *
+     * @param format The MIME type of the asset (e.g. "video/mp4")
+     * @param stream The asset stream to hash
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if hashing fails
+     */
+    @Throws(C2PAError::class)
+    fun updateHashFromStream(format: String, stream: Stream): Builder {
+        val result = updateHashFromStreamNative(ptr, format, stream.rawPtr)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to update hash from stream")
+        }
+        return this
+    }
+
+    /**
+     * Returns the hash binding type the builder will use for the given format.
+     *
+     * @param format The MIME type of the asset (e.g. "image/jpeg", "video/mp4")
+     * @return The [HashType] for the format
+     * @throws C2PAError.Api if the type cannot be determined
+     */
+    @Throws(C2PAError::class)
+    fun hashType(format: String): HashType {
+        val result = hashTypeNative(ptr, format)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to determine hash type")
+        }
+        return HashType.fromValue(result)
+    }
+
     override fun close() {
         if (ptr != 0L) {
             free(ptr)
@@ -587,4 +751,12 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         format: String,
         assetHandle: Long,
     ): ByteArray?
+    private external fun signEmbeddableNative(handle: Long, format: String): ByteArray?
+    private external fun placeholderNative(handle: Long, format: String): ByteArray?
+    private external fun needsPlaceholderNative(handle: Long, format: String): Int
+    private external fun setDataHashExclusionsNative(handle: Long, exclusions: LongArray): Int
+    private external fun setFixedSizeMerkleNative(handle: Long, fixedSizeKb: Long): Int
+    private external fun hashMdatBytesNative(handle: Long, mdatId: Long, data: ByteArray, largeSize: Boolean): Int
+    private external fun updateHashFromStreamNative(handle: Long, format: String, streamHandle: Long): Int
+    private external fun hashTypeNative(handle: Long, format: String): Int
 }
