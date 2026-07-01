@@ -190,50 +190,6 @@ abstract class StreamTests : TestBase() {
         }
     }
 
-    suspend fun testFileOperationsWithDataDirectory(): TestResult = withContext(Dispatchers.IO) {
-        runTest("File Operations with Data Directory") {
-            val testImageFile = copyResourceToFile("adobe_20220124_ci", "test_datadir.jpg")
-            val dataDir = File(getContext().cacheDir, "c2pa_data")
-            dataDir.mkdirs()
-
-            try {
-                try {
-                    C2PA.readFile(testImageFile.absolutePath, dataDir.absolutePath)
-                } catch (e: C2PAError) {
-                    // May fail if no manifest
-                }
-
-                try {
-                    C2PA.readIngredientFile(
-                        testImageFile.absolutePath,
-                        dataDir.absolutePath,
-                    )
-                } catch (e: C2PAError) {
-                    // May fail if no ingredient
-                }
-
-                val dataFiles = dataDir.listFiles() ?: emptyArray()
-                val success = dataFiles.isNotEmpty() && dataFiles.any { it.length() > 0 }
-
-                TestResult(
-                    "File Operations with Data Directory",
-                    success,
-                    if (success) {
-                        "Resources written to data directory"
-                    } else {
-                        "No resources written"
-                    },
-                    "Files in dataDir: ${dataFiles.size}, Total size: ${dataFiles.sumOf {
-                        it.length()
-                    }} bytes",
-                )
-            } finally {
-                testImageFile.delete()
-                dataDir.deleteRecursively()
-            }
-        }
-    }
-
     suspend fun testCallbackStreamFactories(): TestResult = withContext(Dispatchers.IO) {
         runTest("Callback Stream Factories") {
             val errors = mutableListOf<String>()

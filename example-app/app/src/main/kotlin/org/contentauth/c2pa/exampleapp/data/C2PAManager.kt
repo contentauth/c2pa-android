@@ -591,7 +591,7 @@ class C2PAManager(private val context: Context, private val preferencesManager: 
             tempFile.writeBytes(imageData)
 
             // Read and verify using C2PA
-            val manifestJSON = C2PA.readFile(tempFile.absolutePath, null)
+            val manifestJSON = C2PA.readFile(tempFile.absolutePath)
 
             Log.d(TAG, "C2PA VERIFICATION SUCCESS")
             Log.d(TAG, "Manifest JSON length: ${manifestJSON.length} characters")

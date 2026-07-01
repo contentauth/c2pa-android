@@ -58,12 +58,6 @@ class AndroidCoreTests : CoreTests() {
     }
 
     @Test
-    fun runTestReadIngredient() = runBlocking {
-        val result = testReadIngredient()
-        assertTrue(result.success, "Read Ingredient test failed: ${result.message}")
-    }
-
-    @Test
     fun runTestInvalidFileHandling() = runBlocking {
         val result = testInvalidFileHandling()
         assertTrue(result.success, "Invalid File Handling test failed: ${result.message}")
