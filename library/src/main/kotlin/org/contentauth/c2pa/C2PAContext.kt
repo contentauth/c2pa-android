@@ -92,6 +92,24 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
 
         @JvmStatic private external fun nativeNew(): Long
         @JvmStatic private external fun nativeNewWithSettings(settingsPtr: Long): Long
+        @JvmStatic private external fun freeCallbackContextNative(callbackPtr: Long)
+
+        /**
+         * Frees a context-callback (progress / HTTP resolver) struct. Used by
+         * [C2PAContextBuilder] to release callbacks orphaned by a failed or abandoned build.
+         */
+        internal fun releaseCallbackContext(callbackPtr: Long) = freeCallbackContextNative(callbackPtr)
+    }
+
+    /**
+     * Native callback-context pointers (progress / HTTP resolver) owned by this context and freed
+     * on [close]. Populated by [C2PAContextBuilder.build] when callbacks were configured.
+     */
+    private var callbackContextPtrs: LongArray = LongArray(0)
+
+    /** Transfers ownership of callback-context pointers from the builder to this context. */
+    internal fun attachCallbackContexts(ptrs: LongArray) {
+        callbackContextPtrs = ptrs
     }
 
     /**
@@ -114,6 +132,11 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
         if (ptr != 0L) {
             free(ptr)
             ptr = 0
+        }
+        // Free callback contexts after the context itself, so the core stops invoking them first.
+        if (callbackContextPtrs.isNotEmpty()) {
+            callbackContextPtrs.forEach { freeCallbackContextNative(it) }
+            callbackContextPtrs = LongArray(0)
         }
     }
 

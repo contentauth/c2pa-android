@@ -43,6 +43,15 @@ typedef struct {
     jboolean isActive;     // Track if context is still valid
 } JavaSignerContext;
 
+// Context-builder callback context (progress observer / HTTP resolver).
+// Lifetime: created on the builder, ownership transferred to the built C2PAContext,
+// and freed when that context is closed. Mirrors the signer-callback pattern.
+typedef struct {
+    jobject callback;      // Global reference to the Kotlin bridge object
+    jmethodID method;      // Cached bridge method id
+    jboolean isActive;
+} JavaContextCallback;
+
 typedef struct SignerContextNode {
     JavaSignerContext *context;
     struct C2paSigner *signer;
@@ -432,6 +441,103 @@ static intptr_t java_signer_callback(const void *context, const unsigned char *d
     
     (*env)->DeleteLocalRef(env, jsignature);
     return sig_len;
+}
+
+// Progress callback trampoline. The Kotlin side is a Void observer, so this always
+// returns 1 (continue) — cancellation is exposed separately via C2PAContext.cancel().
+static int java_progress_callback(const void *context, enum C2paProgressPhase phase, uint32_t step, uint32_t total) {
+    JavaContextCallback *jctx = (JavaContextCallback*)context;
+    if (jctx == NULL || !jctx->isActive) {
+        return 1;
+    }
+
+    JNIEnv *env = get_jni_env();
+    if (env == NULL) {
+        return 1;
+    }
+
+    // Bridge signature: onProgress(int phase, long step, long total) -> void
+    (*env)->CallVoidMethod(env, jctx->callback, jctx->method, (jint)phase, (jlong)step, (jlong)total);
+    check_exception(env);
+    return 1;
+}
+
+// HTTP resolver trampoline. Marshals the C request into the Kotlin bridge, reads back
+// status + body from the returned HttpResponse, and mallocs the body for Rust to free.
+// Returns 0 on success, -1 on error (with c2pa_error_set_last set).
+static int java_http_resolver_callback(void *context, const struct C2paHttpRequest *request,
+                                       struct C2paHttpResponse *response) {
+    JavaContextCallback *jctx = (JavaContextCallback*)context;
+    if (jctx == NULL || !jctx->isActive) {
+        c2pa_error_set_last("HTTP resolver is no longer active");
+        return -1;
+    }
+
+    JNIEnv *env = get_jni_env();
+    if (env == NULL) {
+        c2pa_error_set_last("Failed to attach JNI environment for HTTP resolver");
+        return -1;
+    }
+
+    jstring jurl = (request->url != NULL) ? cstring_to_jstring(env, request->url) : NULL;
+    jstring jmethod = (request->method != NULL) ? cstring_to_jstring(env, request->method) : NULL;
+    jstring jheaders = (request->headers != NULL) ? cstring_to_jstring(env, request->headers) : NULL;
+    jbyteArray jbody = NULL;
+    if (request->body != NULL && request->body_len > 0 && request->body_len <= INT32_MAX) {
+        jbody = safe_new_byte_array(env, (jsize)request->body_len);
+        if (jbody != NULL) {
+            (*env)->SetByteArrayRegion(env, jbody, 0, (jsize)request->body_len, (const jbyte*)request->body);
+        }
+    }
+
+    // Bridge: resolve(String url, String method, String headers, byte[] body) -> HttpResponse
+    jobject jresp = (*env)->CallObjectMethod(env, jctx->callback, jctx->method, jurl, jmethod, jheaders, jbody);
+    if (jurl != NULL) (*env)->DeleteLocalRef(env, jurl);
+    if (jmethod != NULL) (*env)->DeleteLocalRef(env, jmethod);
+    if (jheaders != NULL) (*env)->DeleteLocalRef(env, jheaders);
+    if (jbody != NULL) (*env)->DeleteLocalRef(env, jbody);
+
+    if (check_exception(env) || jresp == NULL) {
+        c2pa_error_set_last("HTTP resolver callback failed");
+        return -1;
+    }
+
+    jclass respClass = (*env)->GetObjectClass(env, jresp);
+    jmethodID getStatus = (*env)->GetMethodID(env, respClass, "getStatus", "()I");
+    jmethodID getBody = (*env)->GetMethodID(env, respClass, "getBody", "()[B");
+    (*env)->DeleteLocalRef(env, respClass);
+    if (getStatus == NULL || getBody == NULL) {
+        (*env)->DeleteLocalRef(env, jresp);
+        check_exception(env);
+        c2pa_error_set_last("Invalid HttpResponse from resolver");
+        return -1;
+    }
+
+    jint status = (*env)->CallIntMethod(env, jresp, getStatus);
+    jbyteArray respBody = (jbyteArray)(*env)->CallObjectMethod(env, jresp, getBody);
+    (*env)->DeleteLocalRef(env, jresp);
+
+    response->status = (int32_t)status;
+    response->body = NULL;
+    response->body_len = 0;
+
+    if (respBody != NULL) {
+        jsize blen = (*env)->GetArrayLength(env, respBody);
+        if (blen > 0) {
+            unsigned char *buf = (unsigned char*)malloc((size_t)blen);
+            if (buf == NULL) {
+                (*env)->DeleteLocalRef(env, respBody);
+                c2pa_error_set_last("Out of memory copying HTTP response body");
+                return -1;
+            }
+            (*env)->GetByteArrayRegion(env, respBody, 0, blen, (jbyte*)buf);
+            response->body = buf;          // Rust takes ownership and frees with free()
+            response->body_len = (uintptr_t)blen;
+        }
+        (*env)->DeleteLocalRef(env, respBody);
+    }
+
+    return 0;
 }
 
 // Native methods implementation
@@ -1816,6 +1922,20 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContext_cancelNative(JNIEnv
     return c2pa_context_cancel((struct C2paContext*)(uintptr_t)contextPtr);
 }
 
+// Frees a context callback (progress/HTTP-resolver) struct owned by a built context.
+// Called from C2PAContext.close() after the context itself has been freed.
+JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_freeCallbackContextNative(JNIEnv *env, jclass clazz, jlong callbackPtr) {
+    if (callbackPtr == 0) {
+        return;
+    }
+    JavaContextCallback *jctx = (JavaContextCallback*)(uintptr_t)callbackPtr;
+    jctx->isActive = JNI_FALSE;
+    if (jctx->callback != NULL) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+    }
+    free(jctx);
+}
+
 // Context builder methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_nativeNew(JNIEnv *env, jclass clazz) {
     struct C2paContextBuilder *builder = c2pa_context_builder_new();
@@ -1845,6 +1965,111 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNat
         (struct C2paContextBuilder*)(uintptr_t)builderPtr,
         (struct C2paSigner*)(uintptr_t)signerPtr
     );
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgressCallbackNative(JNIEnv *env, jobject obj, jlong builderPtr, jobject bridge) {
+    if (builderPtr == 0 || bridge == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and progress callback cannot be null");
+        return 0;
+    }
+
+    JavaContextCallback *jctx = (JavaContextCallback*)calloc(1, sizeof(JavaContextCallback));
+    if (jctx == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
+                         "Failed to allocate progress callback context");
+        return 0;
+    }
+
+    jctx->callback = (*env)->NewGlobalRef(env, bridge);
+    if (jctx->callback == NULL) {
+        free(jctx);
+        check_exception(env);
+        return 0;
+    }
+
+    jclass bridgeClass = (*env)->GetObjectClass(env, bridge);
+    jctx->method = (*env)->GetMethodID(env, bridgeClass, "onProgress", "(IJJ)V");
+    (*env)->DeleteLocalRef(env, bridgeClass);
+    if (jctx->method == NULL) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        check_exception(env);
+        return 0;
+    }
+
+    jctx->isActive = JNI_TRUE;
+
+    int result = c2pa_context_builder_set_progress_callback(
+        (struct C2paContextBuilder*)(uintptr_t)builderPtr,
+        jctx,
+        java_progress_callback
+    );
+    if (result != 0) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        throw_c2pa_exception(env, "Failed to set progress callback");
+        return 0;
+    }
+
+    // Ownership of jctx transfers to the built context (freed in C2PAContext.close()).
+    return (jlong)(uintptr_t)jctx;
+}
+
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpResolverNative(JNIEnv *env, jobject obj, jlong builderPtr, jobject bridge) {
+    if (builderPtr == 0 || bridge == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and HTTP resolver cannot be null");
+        return 0;
+    }
+
+    JavaContextCallback *jctx = (JavaContextCallback*)calloc(1, sizeof(JavaContextCallback));
+    if (jctx == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
+                         "Failed to allocate HTTP resolver context");
+        return 0;
+    }
+
+    jctx->callback = (*env)->NewGlobalRef(env, bridge);
+    if (jctx->callback == NULL) {
+        free(jctx);
+        check_exception(env);
+        return 0;
+    }
+
+    jclass bridgeClass = (*env)->GetObjectClass(env, bridge);
+    jctx->method = (*env)->GetMethodID(env, bridgeClass, "resolve",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[B)Lorg/contentauth/c2pa/HttpResponse;");
+    (*env)->DeleteLocalRef(env, bridgeClass);
+    if (jctx->method == NULL) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        check_exception(env);
+        return 0;
+    }
+
+    jctx->isActive = JNI_TRUE;
+
+    struct C2paHttpResolver *resolver = c2pa_http_resolver_create(jctx, java_http_resolver_callback);
+    if (resolver == NULL) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        throw_c2pa_exception(env, "Failed to create HTTP resolver");
+        return 0;
+    }
+
+    int result = c2pa_context_builder_set_http_resolver((struct C2paContextBuilder*)(uintptr_t)builderPtr, resolver);
+    if (result != 0) {
+        // set_http_resolver only consumes the resolver on success; free it on failure.
+        c2pa_free(resolver);
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        throw_c2pa_exception(env, "Failed to set HTTP resolver");
+        return 0;
+    }
+
+    // Ownership of jctx transfers to the built context (freed in C2PAContext.close()).
+    return (jlong)(uintptr_t)jctx;
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_buildNative(JNIEnv *env, jobject obj, jlong builderPtr) {

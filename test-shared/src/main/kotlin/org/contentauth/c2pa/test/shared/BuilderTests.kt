@@ -27,7 +27,9 @@ import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.DigitalSourceType
 import org.contentauth.c2pa.FileStream
 import org.contentauth.c2pa.HashType
+import org.contentauth.c2pa.HttpResponse
 import org.contentauth.c2pa.PredefinedAction
+import org.contentauth.c2pa.ProgressUpdate
 import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
 import org.contentauth.c2pa.SignerInfo
@@ -877,6 +879,154 @@ abstract class BuilderTests : TestBase() {
                 },
                 "Checked 2 error paths; unexpected successes: ${unexpectedSuccess.size}",
             )
+        }
+    }
+
+    suspend fun testContextProgressCallback(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Progress Callback") {
+            val updates = java.util.Collections.synchronizedList(mutableListOf<ProgressUpdate>())
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setProgressCallback { update -> updates.add(update) }
+                        .build()
+                }
+
+                val signedSize = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                    builder.sign("image/jpeg", source, dest, signer).size
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val success = signedSize > 0 && updates.isNotEmpty()
+                TestResult(
+                    "Context Progress Callback",
+                    success,
+                    if (success) {
+                        "Observed ${updates.size} progress update(s) during signing"
+                    } else {
+                        "No progress updates received or signing failed"
+                    },
+                    "Signed size: $signedSize, updates: ${updates.size}, phases: ${updates.map { it.phase }.distinct()}",
+                )
+            } catch (e: C2PAError) {
+                TestResult("Context Progress Callback", false, "Progress callback flow threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextHttpResolver(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context HTTP Resolver") {
+            var invoked = false
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                // A recording resolver: confirms wiring (set → build → transfer → free) doesn't break
+                // normal signing. Actual resolution is exercised on-device with a remote manifest/TSA.
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setHttpResolver { _ ->
+                            invoked = true
+                            HttpResponse(404, null)
+                        }
+                        .build()
+                }
+
+                val signedSize = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                    builder.sign("image/jpeg", source, dest, signer).size
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val success = signedSize > 0
+                TestResult(
+                    "Context HTTP Resolver",
+                    success,
+                    if (success) {
+                        "Resolver wired; local sign unaffected (resolver invoked: $invoked)"
+                    } else {
+                        "Signing failed with resolver attached"
+                    },
+                    "Signed size: $signedSize, resolver invoked: $invoked",
+                )
+            } catch (e: C2PAError) {
+                TestResult("Context HTTP Resolver", false, "HTTP resolver flow threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextHttpResolverOkHttp(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context HTTP Resolver (OkHttp)") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                // OkHttp-backed convenience resolver (default client). Verifies the convenience
+                // overload wires up and does not break a normal local sign; the OkHttp resolve()
+                // body itself only runs on an actual remote fetch (exercised on-device separately).
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setHttpResolver()
+                        .build()
+                }
+
+                val signedSize = context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                    builder.sign("image/jpeg", source, dest, signer).size
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val success = signedSize > 0
+                TestResult(
+                    "Context HTTP Resolver (OkHttp)",
+                    success,
+                    if (success) {
+                        "OkHttp resolver wired; local sign unaffected"
+                    } else {
+                        "Signing failed with OkHttp resolver attached"
+                    },
+                    "Signed size: $signedSize",
+                )
+            } catch (e: C2PAError) {
+                TestResult("Context HTTP Resolver (OkHttp)", false, "OkHttp resolver flow threw", e.toString())
+            }
         }
     }
 

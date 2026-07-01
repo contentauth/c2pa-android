@@ -154,6 +154,24 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestContextProgressCallback() = runBlocking {
+        val result = testContextProgressCallback()
+        assertTrue(result.success, "Context Progress Callback test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextHttpResolver() = runBlocking {
+        val result = testContextHttpResolver()
+        assertTrue(result.success, "Context HTTP Resolver test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextHttpResolverOkHttp() = runBlocking {
+        val result = testContextHttpResolverOkHttp()
+        assertTrue(result.success, "Context HTTP Resolver (OkHttp) test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestBuilderFromArchive() = runBlocking {
         val result = testBuilderFromArchive()
         assertTrue(result.success, "Builder from Archive test failed: ${result.message}")
