@@ -175,6 +175,30 @@ static jstring cstring_to_jstring(JNIEnv *env, const char* cstr) {
     return jstr;
 }
 
+// Helper to convert a C string array (as returned by c2pa_*_supported_mime_types)
+// into a Java String[]. Does not free the source array; the caller is responsible.
+static jobjectArray cstring_array_to_jarray(JNIEnv *env, const char *const *items, uintptr_t count) {
+    jclass stringClass = (*env)->FindClass(env, "java/lang/String");
+    if (stringClass == NULL) {
+        check_exception(env);
+        return NULL;
+    }
+    jobjectArray result = (*env)->NewObjectArray(env, (jsize)count, stringClass, NULL);
+    (*env)->DeleteLocalRef(env, stringClass);
+    if (result == NULL) {
+        check_exception(env);
+        return NULL;
+    }
+    for (uintptr_t i = 0; i < count; i++) {
+        jstring item = cstring_to_jstring(env, items[i]);
+        if (item != NULL) {
+            (*env)->SetObjectArrayElement(env, result, (jsize)i, item);
+            (*env)->DeleteLocalRef(env, item);
+        }
+    }
+    return result;
+}
+
 // Thread key destructor - detaches thread when it exits
 static void thread_detach_destructor(void *value) {
     if (value != NULL) {
@@ -749,7 +773,29 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(
     return (jlong)(uintptr_t)result;
 }
 
+JNIEXPORT jobjectArray JNICALL Java_org_contentauth_c2pa_Reader_supportedMimeTypesNative(JNIEnv *env, jclass clazz) {
+    uintptr_t count = 0;
+    const char *const *types = c2pa_reader_supported_mime_types(&count);
+    if (types == NULL) {
+        return NULL;
+    }
+    jobjectArray result = cstring_array_to_jarray(env, types, count);
+    c2pa_free_string_array(types, count);
+    return result;
+}
+
 // Builder native methods
+JNIEXPORT jobjectArray JNICALL Java_org_contentauth_c2pa_Builder_supportedMimeTypesNative(JNIEnv *env, jclass clazz) {
+    uintptr_t count = 0;
+    const char *const *types = c2pa_builder_supported_mime_types(&count);
+    if (types == NULL) {
+        return NULL;
+    }
+    jobjectArray result = cstring_array_to_jarray(env, types, count);
+    c2pa_free_string_array(types, count);
+    return result;
+}
+
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIEnv *env, jclass clazz, jlong streamPtr) {
     if (streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
@@ -829,6 +875,23 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setRemoteUrlNative(JNIE
     return result;
 }
 
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setBasePathNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring basePath) {
+    if (builderPtr == 0 || basePath == NULL) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and base path cannot be null");
+        return -1;
+    }
+
+    const char *cbasePath = jstring_to_cstring(env, basePath);
+    if (cbasePath == NULL) {
+        return -1;
+    }
+
+    int result = c2pa_builder_set_base_path((struct C2paBuilder*)(uintptr_t)builderPtr, cbasePath);
+    release_cstring(env, basePath, cbasePath);
+    return result;
+}
+
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addResourceNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring uri, jlong streamPtr) {
     const char *curi = jstring_to_cstring(env, uri);
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
@@ -856,6 +919,38 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_toArchiveNative(JNIEnv 
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     return c2pa_builder_to_archive(builder, stream);
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
+    if (builderPtr == 0 || streamPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder and stream cannot be null");
+        return -1;
+    }
+
+    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
+    struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
+    return c2pa_builder_add_ingredient_from_archive(builder, stream);
+}
+
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_writeIngredientArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring ingredientId, jlong streamPtr) {
+    if (builderPtr == 0 || ingredientId == NULL || streamPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder, ingredient id, and stream cannot be null");
+        return -1;
+    }
+
+    const char *cingredientId = jstring_to_cstring(env, ingredientId);
+    if (cingredientId == NULL) {
+        return -1;
+    }
+
+    struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
+    int result = c2pa_builder_write_ingredient_archive(
+        (struct C2paBuilder*)(uintptr_t)builderPtr, cingredientId, stream
+    );
+    release_cstring(env, ingredientId, cingredientId);
+    return result;
 }
 
 JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr, jlong signerPtr) {

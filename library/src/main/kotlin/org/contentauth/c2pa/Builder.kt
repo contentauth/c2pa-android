@@ -286,6 +286,14 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         }
 
         /**
+         * Returns the MIME types the builder supports for signing.
+         *
+         * @return The supported MIME types (e.g. "image/jpeg"), or an empty list if none
+         */
+        @JvmStatic
+        fun supportedMimeTypes(): List<String> = supportedMimeTypesNative()?.toList() ?: emptyList()
+
+        /**
          * Wraps raw manifest bytes into a format-specific embeddable block.
          *
          * Use this to convert the bytes produced by [signDataHashedEmbeddable] or
@@ -306,6 +314,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
 
         @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
 
+        @JvmStatic private external fun supportedMimeTypesNative(): Array<String>?
         @JvmStatic private external fun formatEmbeddableNative(format: String, manifestData: ByteArray): ByteArray?
     }
 
@@ -440,6 +449,25 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     }
 
     /**
+     * Sets the base path used to resolve relative resource references.
+     *
+     * When the manifest definition references resources by relative path, the builder resolves
+     * them against this base directory on the filesystem.
+     *
+     * @param path The base directory for resolving relative resource references
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if the base path cannot be set
+     */
+    @Throws(C2PAError::class)
+    fun setBasePath(path: String): Builder {
+        val result = setBasePathNative(ptr, path)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to set base path")
+        }
+        return this
+    }
+
+    /**
      * Adds a resource to the builder.
      *
      * @param uri The URI identifying the resource
@@ -475,6 +503,27 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     }
 
     /**
+     * Imports an ingredient into this builder from a single-ingredient C2PA archive stream.
+     *
+     * The archive is one previously produced by [writeIngredientArchive]. Rewind the stream to
+     * its start before calling.
+     *
+     * @param archive The input stream containing the single-ingredient archive
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if the ingredient cannot be imported
+     *
+     * @see writeIngredientArchive
+     */
+    @Throws(C2PAError::class)
+    fun addIngredientFromArchive(archive: Stream): Builder {
+        val result = addIngredientFromArchiveNative(ptr, archive.rawPtr)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to add ingredient from archive")
+        }
+        return this
+    }
+
+    /**
      * Writes the builder state to an archive stream.
      *
      * Archives are portable representations of a manifest and its associated resources
@@ -488,6 +537,27 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         val result = toArchiveNative(ptr, dest.rawPtr)
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to write archive")
+        }
+    }
+
+    /**
+     * Writes a single-ingredient C2PA archive for the given ingredient to the destination stream.
+     *
+     * The archive can later be imported into another builder with [addIngredientFromArchive].
+     * This requires the `generate_c2pa_archive` builder setting to be enabled in the settings used
+     * to create this builder.
+     *
+     * @param ingredientId Identifier of the ingredient within this builder to serialize
+     * @param dest The output stream to write the ingredient archive to
+     * @throws C2PAError.Api if the ingredient archive cannot be written
+     *
+     * @see addIngredientFromArchive
+     */
+    @Throws(C2PAError::class)
+    fun writeIngredientArchive(ingredientId: String, dest: Stream) {
+        val result = writeIngredientArchiveNative(ptr, ingredientId, dest.rawPtr)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to write ingredient archive")
         }
     }
 
@@ -728,6 +798,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     private external fun addActionNative(handle: Long, actionJson: String): Int
     private external fun setNoEmbedNative(handle: Long)
     private external fun setRemoteUrlNative(handle: Long, remoteUrl: String): Int
+    private external fun setBasePathNative(handle: Long, basePath: String): Int
     private external fun addResourceNative(handle: Long, uri: String, streamHandle: Long): Int
     private external fun addIngredientFromStreamNative(
         handle: Long,
@@ -736,6 +807,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         sourceHandle: Long,
     ): Int
     private external fun toArchiveNative(handle: Long, streamHandle: Long): Int
+    private external fun addIngredientFromArchiveNative(handle: Long, streamHandle: Long): Int
+    private external fun writeIngredientArchiveNative(handle: Long, ingredientId: String, streamHandle: Long): Int
     private external fun signNative(
         handle: Long,
         format: String,

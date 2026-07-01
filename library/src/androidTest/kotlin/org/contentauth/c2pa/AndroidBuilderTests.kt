@@ -58,6 +58,18 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestBuilderSetBasePath() = runBlocking {
+        val result = testBuilderSetBasePath()
+        assertTrue(result.success, "Builder Set Base Path test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSupportedMimeTypes() = runBlocking {
+        val result = testSupportedMimeTypes()
+        assertTrue(result.success, "Supported MIME Types test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestBuilderAddResource() = runBlocking {
         val result = testBuilderAddResource()
         assertTrue(result.success, "Builder Add Resource test failed: ${result.message}")
@@ -97,6 +109,18 @@ class AndroidBuilderTests : BuilderTests() {
     fun runTestContextBuilderCloseWithoutBuild() = runBlocking {
         val result = testContextBuilderCloseWithoutBuild()
         assertTrue(result.success, "Context Builder Close Without Build test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderIngredientArchive() = runBlocking {
+        val result = testBuilderIngredientArchive()
+        assertTrue(result.success, "Builder Ingredient Archive test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderArchiveErrorPaths() = runBlocking {
+        val result = testBuilderArchiveErrorPaths()
+        assertTrue(result.success, "Builder Archive Error Paths test failed: ${result.message}")
     }
 
     @Test
