@@ -121,6 +121,33 @@ class AndroidBuilderTests : BuilderTests() {
     fun runTestBuilderArchiveErrorPaths() = runBlocking {
         val result = testBuilderArchiveErrorPaths()
         assertTrue(result.success, "Builder Archive Error Paths test failed: ${result.message}")
+    fun runTestEmbeddableAndPlaceholder() = runBlocking {
+        val result = testEmbeddableAndPlaceholder()
+        assertTrue(result.success, "Embeddable and Placeholder test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderHashType() = runBlocking {
+        val result = testBuilderHashType()
+        assertTrue(result.success, "Builder Hash Type test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSignEmbeddableDataHash() = runBlocking {
+        val result = testSignEmbeddableDataHash()
+        assertTrue(result.success, "Sign Embeddable (data hash) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBmffMerkleHashing() = runBlocking {
+        val result = testBmffMerkleHashing()
+        assertTrue(result.success, "BMFF Merkle Hashing test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestBuilderEmbeddableErrorPaths() = runBlocking {
+        val result = testBuilderEmbeddableErrorPaths()
+        assertTrue(result.success, "Builder Embeddable Error Paths test failed: ${result.message}")
     }
 
     @Test
