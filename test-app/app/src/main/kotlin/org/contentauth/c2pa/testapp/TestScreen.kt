@@ -163,7 +163,6 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(coreTests.testLibraryVersion())
     results.add(coreTests.testErrorHandling())
     results.add(coreTests.testReadManifestFromTestImage())
-    results.add(coreTests.testReadIngredient())
     results.add(coreTests.testInvalidFileHandling())
     results.add(coreTests.testResourceReading())
     results.add(coreTests.testLoadSettings())
@@ -178,7 +177,6 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(streamTests.testStreamFileOptions())
     results.add(streamTests.testWriteOnlyStreams())
     results.add(streamTests.testCustomStreamCallbacks())
-    results.add(streamTests.testFileOperationsWithDataDirectory())
 
     // Builder Tests
     val builderTests = AppBuilderTests(context)

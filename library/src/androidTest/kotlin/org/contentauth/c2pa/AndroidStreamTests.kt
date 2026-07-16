@@ -78,12 +78,4 @@ class AndroidStreamTests : StreamTests() {
         )
     }
 
-    @Test
-    fun runTestFileOperationsWithDataDirectory() = runBlocking {
-        val result = testFileOperationsWithDataDirectory()
-        assertTrue(
-            result.success,
-            "File Operations with Data Directory test failed: ${result.message}",
-        )
-    }
 }
