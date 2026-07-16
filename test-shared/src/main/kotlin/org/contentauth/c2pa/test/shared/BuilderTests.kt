@@ -15,6 +15,9 @@ package org.contentauth.c2pa.test.shared
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.contentauth.c2pa.Action
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.BuilderIntent
@@ -29,6 +32,7 @@ import org.contentauth.c2pa.FileStream
 import org.contentauth.c2pa.HashType
 import org.contentauth.c2pa.HttpResponse
 import org.contentauth.c2pa.PredefinedAction
+import org.contentauth.c2pa.ProgressPhase
 import org.contentauth.c2pa.ProgressUpdate
 import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
@@ -37,6 +41,8 @@ import org.contentauth.c2pa.SigningAlgorithm
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** BuilderTests - Builder API tests for manifest creation */
 abstract class BuilderTests : TestBase() {
@@ -938,8 +944,8 @@ abstract class BuilderTests : TestBase() {
                 val settingsJson =
                     """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
 
-                // A recording resolver: confirms wiring (set → build → transfer → free) doesn't break
-                // normal signing. Actual resolution is exercised on-device with a remote manifest/TSA.
+                // A recording resolver: confirms the wiring (set, build, transfer, free) doesn't break
+                // normal signing. Actual resolution is covered by testContextHttpResolverRemoteFetch.
                 val context = C2PASettings.create().use { settings ->
                     settings.updateFromString(settingsJson, "json")
                     C2PAContextBuilder.create()
@@ -990,8 +996,8 @@ abstract class BuilderTests : TestBase() {
                     """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
 
                 // OkHttp-backed convenience resolver (default client). Verifies the convenience
-                // overload wires up and does not break a normal local sign; the OkHttp resolve()
-                // body itself only runs on an actual remote fetch (exercised on-device separately).
+                // overload wires up and does not break a normal local sign; an actual fetch through
+                // the OkHttp resolver is covered by testContextHttpResolverOkHttpFetch.
                 val context = C2PASettings.create().use { settings ->
                     settings.updateFromString(settingsJson, "json")
                     C2PAContextBuilder.create()
@@ -1027,6 +1033,209 @@ abstract class BuilderTests : TestBase() {
             } catch (e: C2PAError) {
                 TestResult("Context HTTP Resolver (OkHttp)", false, "OkHttp resolver flow threw", e.toString())
             }
+        }
+    }
+
+    private class RemoteSignResult(val signedAsset: ByteArray, val manifestBytes: ByteArray)
+
+    /** Signs the test image no-embed with [remoteUrl] as the remote manifest reference. */
+    private fun signRemoteNoEmbed(remoteUrl: String): RemoteSignResult? {
+        val certPem = loadResourceAsString("es256_certs")
+        val keyPem = loadResourceAsString("es256_private")
+        val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+        Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+            builder.setNoEmbed()
+            builder.setRemoteURL(remoteUrl)
+            ByteArrayStream(sourceImageData).use { source ->
+                ByteArrayStream().use { dest ->
+                    Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                        val result = builder.sign("image/jpeg", source, dest, signer)
+                        val manifest = result.manifestBytes ?: return null
+                        if (manifest.isEmpty()) return null
+                        return RemoteSignResult(dest.getData(), manifest)
+                    }
+                }
+            }
+        }
+    }
+
+    suspend fun testContextHttpResolverRemoteFetch(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context HTTP Resolver Remote Fetch") {
+            try {
+                val signed = signRemoteNoEmbed("http://c2pa-test.invalid/manifest.c2pa")
+                    ?: return@runTest TestResult(
+                        "Context HTTP Resolver Remote Fetch",
+                        false,
+                        "No-embed sign produced no manifest bytes",
+                    )
+
+                // The resolver is the SDK's network layer, so it can serve the captured manifest
+                // bytes directly: the remote fetch is exercised end-to-end with no real network.
+                val requestedUrls = java.util.Collections.synchronizedList(mutableListOf<String>())
+                val settingsJson = """{"version": 1, "verify": {"remote_manifest_fetch": true}}"""
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setHttpResolver { request ->
+                            requestedUrls.add(request.url)
+                            HttpResponse(200, signed.manifestBytes)
+                        }
+                        .build()
+                }
+
+                val manifestJson = context.use { ctx ->
+                    ByteArrayStream(signed.signedAsset).use { stream ->
+                        Reader.fromContext(ctx).withStream("image/jpeg", stream).use { reader ->
+                            reader.json()
+                        }
+                    }
+                }
+
+                val success = requestedUrls.isNotEmpty() && manifestJson.isNotEmpty()
+                TestResult(
+                    "Context HTTP Resolver Remote Fetch",
+                    success,
+                    if (success) {
+                        "Remote manifest fetched through the custom resolver"
+                    } else {
+                        "Resolver not invoked or manifest not read"
+                    },
+                    "Resolver requests: $requestedUrls, manifest JSON length: ${manifestJson.length}",
+                )
+            } catch (e: C2PAError) {
+                TestResult("Context HTTP Resolver Remote Fetch", false, "Remote fetch flow threw", e.toString())
+            }
+        }
+    }
+
+    private fun signingServerUrl(): String = System.getenv("SIGNING_SERVER_URL") ?: "http://10.0.2.2:8080"
+
+    private fun isSigningServerAvailable(serverUrl: String): Boolean = try {
+        val client = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+        client.newCall(Request.Builder().url("$serverUrl/health").build()).execute().use { it.isSuccessful }
+    } catch (e: Exception) {
+        false
+    }
+
+    suspend fun testContextHttpResolverOkHttpFetch(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context HTTP Resolver OkHttp Fetch") {
+            val serverUrl = signingServerUrl()
+            if (!isSigningServerAvailable(serverUrl)) {
+                return@runTest TestResult(
+                    "Context HTTP Resolver OkHttp Fetch",
+                    true,
+                    "SKIPPED: Signing server not available",
+                    status = TestStatus.SKIPPED,
+                )
+            }
+            try {
+                val manifestId = UUID.randomUUID().toString()
+                val remoteUrl = "$serverUrl/api/v1/manifests/$manifestId"
+                val signed = signRemoteNoEmbed(remoteUrl)
+                    ?: return@runTest TestResult(
+                        "Context HTTP Resolver OkHttp Fetch",
+                        false,
+                        "No-embed sign produced no manifest bytes",
+                    )
+
+                // Publish the manifest to the signing server's manifest store, then let the
+                // OkHttp-backed resolver fetch it back as the remote manifest.
+                val putResponse = OkHttpClient().newCall(
+                    Request.Builder()
+                        .url(remoteUrl)
+                        .put(signed.manifestBytes.toRequestBody())
+                        .build(),
+                ).execute()
+                putResponse.use { response ->
+                    if (!response.isSuccessful) {
+                        return@runTest TestResult(
+                            "Context HTTP Resolver OkHttp Fetch",
+                            false,
+                            "Failed to publish manifest to signing server",
+                            "HTTP ${response.code} from PUT $remoteUrl",
+                        )
+                    }
+                }
+
+                val settingsJson = """{"version": 1, "verify": {"remote_manifest_fetch": true}}"""
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setHttpResolver()
+                        .build()
+                }
+
+                val manifestJson = context.use { ctx ->
+                    ByteArrayStream(signed.signedAsset).use { stream ->
+                        Reader.fromContext(ctx).withStream("image/jpeg", stream).use { reader ->
+                            reader.json()
+                        }
+                    }
+                }
+
+                val success = manifestJson.isNotEmpty()
+                TestResult(
+                    "Context HTTP Resolver OkHttp Fetch",
+                    success,
+                    if (success) {
+                        "Remote manifest fetched through the OkHttp resolver"
+                    } else {
+                        "Manifest not read via OkHttp resolver"
+                    },
+                    "Manifest JSON length: ${manifestJson.length}",
+                )
+            } catch (e: C2PAError) {
+                TestResult("Context HTTP Resolver OkHttp Fetch", false, "OkHttp fetch flow threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextBuilderCallbackErrorPaths(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Builder Callback Error Paths") {
+            val unexpectedSuccess = mutableListOf<String>()
+            fun expectThrows(label: String, block: () -> Unit) {
+                try {
+                    block()
+                    unexpectedSuccess.add(label)
+                } catch (e: C2PAError) {
+                    // expected
+                }
+            }
+
+            // Callback setters must reject a builder already consumed by build().
+            val consumed = C2PAContextBuilder.create()
+            consumed.build().close()
+            expectThrows("setProgressCallback on consumed builder") { consumed.setProgressCallback { } }
+            expectThrows("setHttpResolver on consumed builder") { consumed.setHttpResolver { HttpResponse(200, null) } }
+            consumed.close()
+
+            // Closing a builder without building must free the un-transferred callback boxes.
+            C2PAContextBuilder.create()
+                .setProgressCallback { }
+                .setHttpResolver { HttpResponse(200, null) }
+                .close()
+
+            // Unknown native phase values fall back to UNKNOWN.
+            if (ProgressPhase.fromValue(Int.MAX_VALUE) != ProgressPhase.UNKNOWN) {
+                unexpectedSuccess.add("ProgressPhase.fromValue fallback")
+            }
+
+            val success = unexpectedSuccess.isEmpty()
+            TestResult(
+                "Context Builder Callback Error Paths",
+                success,
+                if (success) {
+                    "Consumed-builder guards, abandoned-builder cleanup, and phase fallback all behaved"
+                } else {
+                    "Unexpected: $unexpectedSuccess"
+                },
+                "Checked setProgressCallback/setHttpResolver guards, close-without-build, unknown phase",
+            )
         }
     }
 

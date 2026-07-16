@@ -26,12 +26,14 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.serialization.json.Json
 import org.contentauth.c2pa.signingserver.controllers.C2PAConfigurationController
 import org.contentauth.c2pa.signingserver.controllers.C2PASigningController
 import org.contentauth.c2pa.signingserver.controllers.CertificateSigningController
+import org.contentauth.c2pa.signingserver.controllers.ManifestStoreController
 import org.contentauth.c2pa.signingserver.services.CertificateSigningService
 
 fun main() {
@@ -40,6 +42,7 @@ fun main() {
     val c2paSigningController = C2PASigningController()
     val c2paConfigurationController = C2PAConfigurationController()
     val certificateSigningController = CertificateSigningController(certificateSigningService)
+    val manifestStoreController = ManifestStoreController()
 
     embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
         install(ContentNegotiation) {
@@ -87,6 +90,12 @@ fun main() {
                 // Certificate signing endpoint
                 route("/certificates") {
                     post("/sign") { certificateSigningController.signCSR(call) }
+                }
+
+                // In-memory manifest store for remote-manifest fetch tests
+                route("/manifests") {
+                    put("/{id}") { manifestStoreController.store(call) }
+                    get("/{id}") { manifestStoreController.fetch(call) }
                 }
 
                 // C2PA endpoints with bearer auth protection
