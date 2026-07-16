@@ -462,86 +462,6 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PA_loadSettingsNative(JNIEnv 
     return result;
 }
 
-JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_readFileNative(JNIEnv *env, jclass clazz, jstring path, jstring dataDir) {
-    const char *cpath = jstring_to_cstring(env, path);
-    const char *cdataDir = jstring_to_cstring(env, dataDir);
-    
-    char *result = c2pa_read_file(cpath, cdataDir);
-    jstring jresult = cstring_to_jstring(env, result);
-    
-    c2pa_free(result);
-    release_cstring(env, path, cpath);
-    release_cstring(env, dataDir, cdataDir);
-    
-    return jresult;
-}
-
-JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_readIngredientFileNative(JNIEnv *env, jclass clazz, jstring path, jstring dataDir) {
-    const char *cpath = jstring_to_cstring(env, path);
-    const char *cdataDir = jstring_to_cstring(env, dataDir);
-    
-    char *result = c2pa_read_ingredient_file(cpath, cdataDir);
-    jstring jresult = cstring_to_jstring(env, result);
-    
-    c2pa_free(result);
-    release_cstring(env, path, cpath);
-    release_cstring(env, dataDir, cdataDir);
-    
-    return jresult;
-}
-
-JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_signFileNative(JNIEnv *env, jclass clazz, jstring sourcePath, jstring destPath, jstring manifest, jstring algorithm, jstring certificatePEM, jstring privateKeyPEM, jstring tsaURL, jstring dataDir) {
-    if (sourcePath == NULL || destPath == NULL || manifest == NULL || algorithm == NULL || certificatePEM == NULL || privateKeyPEM == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Required parameters cannot be null");
-        return NULL;
-    }
-    
-    const char *csourcePath = jstring_to_cstring(env, sourcePath);
-    const char *cdestPath = jstring_to_cstring(env, destPath);
-    const char *cmanifest = jstring_to_cstring(env, manifest);
-    const char *calgorithm = jstring_to_cstring(env, algorithm);
-    const char *ccertificatePEM = jstring_to_cstring(env, certificatePEM);
-    const char *cprivateKeyPEM = jstring_to_cstring(env, privateKeyPEM);
-    const char *ctsaURL = jstring_to_cstring(env, tsaURL);
-    const char *cdataDir = jstring_to_cstring(env, dataDir);
-    
-    if (csourcePath == NULL || cdestPath == NULL || cmanifest == NULL || 
-        calgorithm == NULL || ccertificatePEM == NULL || cprivateKeyPEM == NULL) {
-        release_cstring(env, sourcePath, csourcePath);
-        release_cstring(env, destPath, cdestPath);
-        release_cstring(env, manifest, cmanifest);
-        release_cstring(env, algorithm, calgorithm);
-        release_cstring(env, certificatePEM, ccertificatePEM);
-        release_cstring(env, privateKeyPEM, cprivateKeyPEM);
-        release_cstring(env, tsaURL, ctsaURL);
-        release_cstring(env, dataDir, cdataDir);
-        return NULL;
-    }
-    
-    struct C2paSignerInfo cSignerInfo = {
-        .alg = calgorithm,
-        .sign_cert = ccertificatePEM,
-        .private_key = cprivateKeyPEM,
-        .ta_url = ctsaURL
-    };
-    
-    char *result = c2pa_sign_file(csourcePath, cdestPath, cmanifest, &cSignerInfo, cdataDir);
-    jstring jresult = cstring_to_jstring(env, result);
-    
-    c2pa_free(result);
-    release_cstring(env, sourcePath, csourcePath);
-    release_cstring(env, destPath, cdestPath);
-    release_cstring(env, manifest, cmanifest);
-    release_cstring(env, algorithm, calgorithm);
-    release_cstring(env, certificatePEM, ccertificatePEM);
-    release_cstring(env, privateKeyPEM, cprivateKeyPEM);
-    release_cstring(env, tsaURL, ctsaURL);
-    release_cstring(env, dataDir, cdataDir);
-    
-    return jresult;
-}
-
 // Stream native methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIEnv *env, jobject obj) {
     JavaStreamContext *ctx = (JavaStreamContext*)calloc(1, sizeof(JavaStreamContext));
@@ -619,15 +539,27 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv
     }
     
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
-    struct C2paReader *reader = c2pa_reader_from_stream(cformat, stream);
-    
+
+    // Create a reader from a default context, then attach the stream. The
+    // context can be released once the reader has been created from it.
+    struct C2paContext *ctx = c2pa_context_new();
+    struct C2paReader *reader = NULL;
+    if (ctx != NULL) {
+        struct C2paReader *base = c2pa_reader_from_context(ctx);
+        if (base != NULL) {
+            // with_stream consumes `base` and returns a new reader.
+            reader = c2pa_reader_with_stream(base, cformat, stream);
+        }
+        c2pa_free(ctx);
+    }
+
     release_cstring(env, format, cformat);
-    
+
     if (reader == NULL) {
         throw_c2pa_exception(env, "Failed to create reader from stream");
         return 0;
     }
-    
+
     return (jlong)(uintptr_t)reader;
 }
 
@@ -665,10 +597,21 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromManifestDataAndStre
         return 0;
     }
     
-    struct C2paReader *reader = c2pa_reader_from_manifest_data_and_stream(
-        cformat, stream, (const unsigned char*)data, dataSize
-    );
-    
+    // Create a reader from a default context, then attach the manifest data and
+    // stream. The context can be released once the reader has been created from it.
+    struct C2paContext *ctx = c2pa_context_new();
+    struct C2paReader *reader = NULL;
+    if (ctx != NULL) {
+        struct C2paReader *base = c2pa_reader_from_context(ctx);
+        if (base != NULL) {
+            // with_manifest_data_and_stream consumes `base` and returns a new reader.
+            reader = c2pa_reader_with_manifest_data_and_stream(
+                base, cformat, stream, (const unsigned char*)data, dataSize
+            );
+        }
+        c2pa_free(ctx);
+    }
+
     (*env)->ReleaseByteArrayElements(env, manifestData, data, JNI_ABORT);
     release_cstring(env, format, cformat);
     

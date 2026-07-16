@@ -87,7 +87,7 @@ fun GalleryScreen(onNavigateBack: () -> Unit, modifier: Modifier = Modifier) {
                     imageFiles.map { file ->
                         val hasC2PA =
                             try {
-                                C2PA.readFile(file.absolutePath, null)
+                                C2PA.readFile(file.absolutePath)
                                 true
                             } catch (e: Exception) {
                                 false
@@ -208,7 +208,7 @@ private fun ImageDetailView(image: GalleryImage, onDismiss: () -> Unit, modifier
         withContext(Dispatchers.IO) {
             if (image.hasC2PA) {
                 try {
-                    val manifestJSON = C2PA.readFile(image.file.absolutePath, null)
+                    val manifestJSON = C2PA.readFile(image.file.absolutePath)
                     val manifest = org.json.JSONObject(manifestJSON)
 
                     val activeManifest = manifest.optJSONObject("active_manifest")

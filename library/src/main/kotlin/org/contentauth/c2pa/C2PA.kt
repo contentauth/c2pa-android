@@ -58,43 +58,47 @@ object C2PA {
         }
     }
 
-    @JvmStatic
-    private external fun readFileNative(path: String, dataDir: String? = null): String?
-
     /**
-     * Read a manifest store from a file
+     * Read a C2PA manifest store from a file.
+     *
+     * Reads via the stream-based [Reader] API; the asset format is inferred from the file
+     * extension. To extract embedded resources, use a [Reader] with [Reader.resource].
+     *
+     * @param path Filesystem path to the asset to read
+     * @return The manifest store as a JSON string
+     * @throws C2PAError if the file is missing or contains no valid manifest
      */
     @Throws(C2PAError::class)
-    fun readFile(path: String, dataDir: String? = null): String = executeC2PAOperation("Failed to read file") {
-        readFileNative(path, dataDir)
+    fun readFile(path: String): String {
+        val file = File(path)
+        if (!file.exists()) {
+            throw C2PAError.Api("File not found: $path")
+        }
+        return try {
+            FileStream(file, FileStream.Mode.READ, createIfNeeded = false).use { stream ->
+                Reader.fromStream(formatFromPath(path), stream).use { reader ->
+                    reader.json()
+                }
+            }
+        } catch (e: C2PAError) {
+            throw e
+        } catch (e: Exception) {
+            throw C2PAError.Api(e.message ?: "Failed to read file")
+        }
     }
 
-    @JvmStatic
-    private external fun readIngredientFileNative(path: String, dataDir: String? = null): String?
-
     /**
-     * Read an ingredient from a file
-     */
-    @Throws(C2PAError::class)
-    fun readIngredientFile(path: String, dataDir: String? = null): String =
-        executeC2PAOperation("Failed to read ingredient file") {
-            readIngredientFileNative(path, dataDir)
-        }
-
-    @JvmStatic
-    private external fun signFileNative(
-        sourcePath: String,
-        destPath: String,
-        manifest: String,
-        algorithm: String,
-        certificatePEM: String,
-        privateKeyPEM: String,
-        tsaURL: String?,
-        dataDir: String? = null,
-    ): String?
-
-    /**
-     * Sign a file with a manifest
+     * Sign a file with a manifest, writing the signed asset to [destPath].
+     *
+     * Signs via the stream-based [Builder] API; the asset format is inferred from the
+     * source file extension.
+     *
+     * @param sourcePath Filesystem path to the source asset
+     * @param destPath Filesystem path for the signed output asset
+     * @param manifest The manifest definition as a JSON string
+     * @param signerInfo The signer configuration
+     * @return The signed manifest store as a JSON string (read back from the destination)
+     * @throws C2PAError if signing fails
      */
     @Throws(C2PAError::class)
     fun signFile(
@@ -102,18 +106,35 @@ object C2PA {
         destPath: String,
         manifest: String,
         signerInfo: SignerInfo,
-        dataDir: String? = null,
-    ): String = executeC2PAOperation("Failed to sign file") {
-        signFileNative(
-            sourcePath,
-            destPath,
-            manifest,
-            signerInfo.algorithm.description,
-            signerInfo.certificatePEM,
-            signerInfo.privateKeyPEM,
-            signerInfo.tsaURL,
-            dataDir,
-        )
+    ): String {
+        val source = File(sourcePath)
+        if (!source.exists()) {
+            throw C2PAError.Api("Source file not found: $sourcePath")
+        }
+        val format = formatFromPath(sourcePath)
+        try {
+            Builder.fromJson(manifest).use { builder ->
+                Signer.fromInfo(signerInfo).use { signer ->
+                    FileStream(source, FileStream.Mode.READ, createIfNeeded = false).use { src ->
+                        FileStream(File(destPath), FileStream.Mode.WRITE).use { dst ->
+                            builder.sign(format, src, dst, signer)
+                        }
+                    }
+                }
+            }
+        } catch (e: C2PAError) {
+            throw e
+        } catch (e: Exception) {
+            throw C2PAError.Api(e.message ?: "Failed to sign file")
+        }
+        return readFile(destPath)
+    }
+
+    /** Infers a C2PA format (file extension) from a path; c2pa-rs accepts an extension as a format. */
+    private fun formatFromPath(path: String): String {
+        val name = path.substringAfterLast('/')
+        val ext = name.substringAfterLast('.', "")
+        return ext.lowercase().ifEmpty { name.lowercase() }
     }
 
     @JvmStatic
@@ -132,19 +153,18 @@ object C2PA {
      * Read a manifest from a file (convenience method)
      */
     @Throws(C2PAError::class)
-    fun read(from: File, resourcesDir: File? = null): String = readFile(from.absolutePath, resourcesDir?.absolutePath)
+    fun read(from: File): String = readFile(from.absolutePath)
 
     /**
      * Sign a file (convenience method)
      */
     @Throws(C2PAError::class)
-    fun sign(source: File, destination: File, manifest: String, signer: SignerInfo, resourcesDir: File? = null) {
+    fun sign(source: File, destination: File, manifest: String, signer: SignerInfo) {
         signFile(
             source.absolutePath,
             destination.absolutePath,
             manifest,
             signer,
-            resourcesDir?.absolutePath,
         )
     }
 }
