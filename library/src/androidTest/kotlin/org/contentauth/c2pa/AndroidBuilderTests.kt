@@ -154,6 +154,47 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestContextProgressCallback() = runBlocking {
+        val result = testContextProgressCallback()
+        assertTrue(result.success, "Context Progress Callback test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextHttpResolver() = runBlocking {
+        val result = testContextHttpResolver()
+        assertTrue(result.success, "Context HTTP Resolver test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextHttpResolverOkHttp() = runBlocking {
+        val result = testContextHttpResolverOkHttp()
+        assertTrue(result.success, "Context HTTP Resolver (OkHttp) test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextHttpResolverRemoteFetch() = runBlocking {
+        val result = testContextHttpResolverRemoteFetch()
+        assertTrue(result.success, "Context HTTP Resolver Remote Fetch test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestContextHttpResolverOkHttpFetch() = runBlocking {
+        val result = testContextHttpResolverOkHttpFetch()
+        // If skipped (signing server not available), that's OK
+        if (result.status == TestStatus.SKIPPED) {
+            println("Test skipped: ${result.message}")
+        } else {
+            assertTrue(result.success, "Context HTTP Resolver OkHttp Fetch test failed: ${result.message}")
+        }
+    }
+
+    @Test
+    fun runTestContextBuilderCallbackErrorPaths() = runBlocking {
+        val result = testContextBuilderCallbackErrorPaths()
+        assertTrue(result.success, "Context Builder Callback Error Paths test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestBuilderFromArchive() = runBlocking {
         val result = testBuilderFromArchive()
         assertTrue(result.success, "Builder from Archive test failed: ${result.message}")
