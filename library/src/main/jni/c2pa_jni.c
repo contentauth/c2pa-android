@@ -873,13 +873,25 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIE
     }
     
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
-    struct C2paBuilder *builder = c2pa_builder_from_archive(stream);
-    
+
+    // Create a builder from a default context, then attach the archive. The
+    // context can be released once the builder has been created from it.
+    struct C2paContext *ctx = c2pa_context_new();
+    struct C2paBuilder *builder = NULL;
+    if (ctx != NULL) {
+        struct C2paBuilder *base = c2pa_builder_from_context(ctx);
+        if (base != NULL) {
+            // with_archive consumes `base` and returns a new builder.
+            builder = c2pa_builder_with_archive(base, stream);
+        }
+        c2pa_free(ctx);
+    }
+
     if (builder == NULL) {
         throw_c2pa_exception(env, "Failed to create builder from archive");
         return 0;
     }
-    
+
     return (jlong)(uintptr_t)builder;
 }
 
