@@ -1239,6 +1239,47 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testReaderCrJson(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Reader crJSON") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                val signedData = Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                    ByteArrayStream(sourceImageData).use { source ->
+                        ByteArrayStream().use { dest ->
+                            Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                builder.sign("image/jpeg", source, dest, signer)
+                            }
+                            dest.getData()
+                        }
+                    }
+                }
+
+                val crjson = ByteArrayStream(signedData).use { signedStream ->
+                    Reader.fromStream("image/jpeg", signedStream).use { reader ->
+                        reader.crJSON()
+                    }
+                }
+
+                val success = crjson.isNotEmpty()
+                TestResult(
+                    "Reader crJSON",
+                    success,
+                    if (success) {
+                        "crJSON returned ${crjson.length} chars"
+                    } else {
+                        "crJSON was empty"
+                    },
+                    "crJSON length: ${crjson.length}",
+                )
+            } catch (e: C2PAError) {
+                TestResult("Reader crJSON", false, "crJSON flow threw", e.toString())
+            }
+        }
+    }
+
     suspend fun testBuilderFromArchive(): TestResult = withContext(Dispatchers.IO) {
         runTest("Builder from Archive") {
             val manifestJson = TEST_MANIFEST_JSON
