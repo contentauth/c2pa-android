@@ -416,7 +416,7 @@ The project includes a Makefile with the following targets:
 
 ## Applications
 
-The test application runs C2PA functionality tests with a visual UI. See [Project contributions - Test app](docs/project-contributions.md#test-app) for details.
+The test application runs C2PA functionality tests with a visual UI. See [Project contributions - Test app](https://github.com/contentauth/c2pa-android/blob/main/docs/project-contributions.md#test-app) for details.
 
 ### Example app
 
@@ -514,4 +514,4 @@ make signing-server-run
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0, and the MIT License. See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
+This project is licensed under the Apache License, Version 2.0, and the MIT License. See [LICENSE-APACHE](https://github.com/contentauth/c2pa-android/blob/main/LICENSE-APACHE) and [LICENSE-MIT](https://github.com/contentauth/c2pa-android/blob/main/LICENSE-MIT) for details.
