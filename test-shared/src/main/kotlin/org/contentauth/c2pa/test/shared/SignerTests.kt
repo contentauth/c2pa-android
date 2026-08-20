@@ -809,6 +809,7 @@ abstract class SignerTests : TestBase() {
             try {
                 val settingsToml = loadSharedResourceAsString("test_settings_with_cawg_signing.toml")
                     ?: throw IllegalArgumentException("Resource not found: test_settings_with_cawg_signing.toml")
+
                 val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
 
                 // Build a context from settings carrying [signer.local], create the builder from
@@ -848,6 +849,95 @@ abstract class SignerTests : TestBase() {
         }
     }
 
+    suspend fun testSignUnsupportedFormat(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Sign Unsupported Format") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                // An unsupported format must surface as C2PAError, not a RuntimeException.
+                var thrown: C2PAError? = null
+
+                Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                    Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                try {
+                                    builder.sign("application/x-unsupported", source, dest, signer)
+                                } catch (e: C2PAError) {
+                                    thrown = e
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val success = thrown != null
+                TestResult(
+                    "Sign Unsupported Format",
+                    success,
+                    if (success) {
+                        "sign threw C2PAError for an unsupported format"
+                    } else {
+                        "sign did not throw for an unsupported format"
+                    },
+                    "Thrown: $thrown",
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Sign Unsupported Format",
+                    false,
+                    "Setup for the unsupported-format flow threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
+    suspend fun testSignWithContextFromJson(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Sign With Context (fromJson builder)") {
+            try {
+                val settingsToml = loadSharedResourceAsString("test_settings_with_cawg_signing.toml")
+                    ?: throw IllegalArgumentException("Resource not found: test_settings_with_cawg_signing.toml")
+
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                // fromJson creates the builder's context internally; with settings carrying
+                // [signer.local], signWithContext draws the signer from that context.
+                val signedSize = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsToml, "toml")
+                    Builder.fromJson(TEST_MANIFEST_JSON, settings).use { builder ->
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                builder.signWithContext("image/jpeg", source, dest).size
+                            }
+                        }
+                    }
+                }
+
+                val success = signedSize > 0
+                TestResult(
+                    "Sign With Context (fromJson builder)",
+                    success,
+                    if (success) {
+                        "Signed via a fromJson builder's settings-configured signer"
+                    } else {
+                        "signWithContext produced no manifest from a fromJson builder"
+                    },
+                    "Signed size: $signedSize",
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Sign With Context (fromJson builder)",
+                    false,
+                    "fromJson signWithContext flow threw",
+                    e.toString(),
+                )
+            }
+        }
+    }
+
     suspend fun testSignWithContextWithoutSigner(): TestResult = withContext(Dispatchers.IO) {
         runTest("Sign With Context (no signer)") {
             try {
@@ -855,6 +945,7 @@ abstract class SignerTests : TestBase() {
 
                 // A default context has no signer, so signWithContext must throw C2PAError.
                 var thrown: C2PAError? = null
+
                 C2PAContext.create().use { context ->
                     Builder.fromContext(context).withDefinition(TEST_MANIFEST_JSON).use { builder ->
                         ByteArrayStream(sourceImageData).use { source ->
