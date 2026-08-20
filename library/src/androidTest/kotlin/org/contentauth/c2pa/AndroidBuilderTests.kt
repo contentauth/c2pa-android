@@ -172,6 +172,12 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestClosedHandleValidation() = runBlocking {
+        val result = testClosedHandleValidation()
+        assertTrue(result.success, "Closed Handle Validation test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestContextCloseDuringSign() = runBlocking {
         val result = testContextCloseDuringSign()
         assertTrue(result.success, "Context Close During Sign test failed: ${result.message}")

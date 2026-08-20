@@ -938,6 +938,53 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testClosedHandleValidation(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Closed Handle Validation") {
+            // Calls on closed handles must be rejected with a typed exception at the
+            // JNI boundary rather than passing a null pointer into the FFI.
+            val unexpected = mutableListOf<String>()
+            fun expect(label: String, expected: Class<out Exception>, block: () -> Unit) {
+                try {
+                    block()
+                    unexpected.add("$label did not throw")
+                } catch (e: Exception) {
+                    if (!expected.isInstance(e)) {
+                        unexpected.add("$label threw ${e.javaClass.simpleName}")
+                    }
+                }
+            }
+
+            val builder = Builder.fromJson(TEST_MANIFEST_JSON)
+            builder.close()
+            expect("toArchive on closed builder", IllegalArgumentException::class.java) {
+                ByteArrayStream().use { builder.toArchive(it) }
+            }
+            expect("addResource on closed builder", IllegalArgumentException::class.java) {
+                ByteArrayStream(byteArrayOf(1)).use { builder.addResource("thumbnail", it) }
+            }
+
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+            val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
+            signer.close()
+            expect("reserveSize on closed signer", IllegalStateException::class.java) {
+                signer.reserveSize()
+            }
+
+            val success = unexpected.isEmpty()
+            TestResult(
+                "Closed Handle Validation",
+                success,
+                if (success) {
+                    "Closed handles rejected with typed exceptions"
+                } else {
+                    "Unexpected: $unexpected"
+                },
+                "Checked toArchive, addResource, reserveSize on closed handles",
+            )
+        }
+    }
+
     suspend fun testContextCloseDuringSign(): TestResult = withContext(Dispatchers.IO) {
         runTest("Context Close During Sign") {
             try {
