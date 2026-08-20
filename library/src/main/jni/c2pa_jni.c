@@ -36,20 +36,28 @@ typedef struct {
     jobject streamObject;  // Global reference
 } JavaStreamContext;
 
-// Signer callback context
+// Signer callback context. The core may invoke a callback with its user_data
+// pointer at any time until every object derived from the owning signer is
+// gone, and provides no destructor hook, so a trampoline must never
+// dereference the raw pointer it is handed. Instead, liveness is a registry
+// lookup: a context is invocable only while it is present in its registry, and
+// refCount (guarded by the registry mutex, one reference held by the registry
+// and one per in-flight invocation) defers the free until the last holder
+// releases. A stale pointer from the core is simply not found and ignored.
 typedef struct {
     jobject callback;      // Global reference
     jmethodID signMethod;
-    jboolean isActive;     // Track if context is still valid
+    int refCount;
 } JavaSignerContext;
 
 // Context-builder callback context (progress observer / HTTP resolver).
-// Lifetime: created on the builder, ownership transferred to the built C2PAContext,
-// and freed when that context is closed. Mirrors the signer-callback pattern.
+// Created on the builder, ownership transferred to the built C2PAContext, and
+// released when that context is closed, with the same registry-lookup liveness
+// scheme as JavaSignerContext (under g_contextCallbacksMutex).
 typedef struct {
     jobject callback;      // Global reference to the Kotlin bridge object
     jmethodID method;      // Cached bridge method id
-    jboolean isActive;
+    int refCount;
 } JavaContextCallback;
 
 typedef struct SignerContextNode {
@@ -58,8 +66,15 @@ typedef struct SignerContextNode {
     struct SignerContextNode *next;
 } SignerContextNode;
 
+typedef struct ContextCallbackNode {
+    JavaContextCallback *context;
+    struct ContextCallbackNode *next;
+} ContextCallbackNode;
+
 static SignerContextNode *g_signerContexts = NULL;
 static pthread_mutex_t g_signerContextsMutex = PTHREAD_MUTEX_INITIALIZER;
+static ContextCallbackNode *g_contextCallbacks = NULL;
+static pthread_mutex_t g_contextCallbacksMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // JNI OnLoad - save JavaVM reference and cache IDs
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -98,26 +113,29 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 // Cleanup all remaining signer contexts
 static void cleanup_all_signer_contexts(JNIEnv *env) {
     pthread_mutex_lock(&g_signerContextsMutex);
-    
-    SignerContextNode *current = g_signerContexts;
-    while (current != NULL) {
-        SignerContextNode *next = current->next;
-        JavaSignerContext *ctx = current->context;
-        
-        if (ctx != NULL) {
-            ctx->isActive = JNI_FALSE;
-            if (ctx->callback != NULL) {
-                (*env)->DeleteGlobalRef(env, ctx->callback);
-            }
-            free(ctx);
-        }
-        
-        free(current);
-        current = next;
-    }
-    
+    SignerContextNode *detached = g_signerContexts;
     g_signerContexts = NULL;
     pthread_mutex_unlock(&g_signerContextsMutex);
+
+    while (detached != NULL) {
+        SignerContextNode *next = detached->next;
+        JavaSignerContext *ctx = detached->context;
+
+        if (ctx != NULL) {
+            pthread_mutex_lock(&g_signerContextsMutex);
+            int remaining = --ctx->refCount;
+            pthread_mutex_unlock(&g_signerContextsMutex);
+            if (remaining == 0) {
+                if (ctx->callback != NULL) {
+                    (*env)->DeleteGlobalRef(env, ctx->callback);
+                }
+                free(ctx);
+            }
+        }
+
+        free(detached);
+        detached = next;
+    }
 }
 
 // JNI OnUnload - cleanup global references
@@ -382,21 +400,106 @@ static intptr_t java_flush_callback(struct StreamContext *context) {
     return (intptr_t)result;
 }
 
-// Signer callback function
-static intptr_t java_signer_callback(const void *context, const unsigned char *data, uintptr_t len, 
-                                    unsigned char *signed_bytes, uintptr_t signed_len) {
-    JavaSignerContext *jctx = (JavaSignerContext*)context;
-    
-    // Check if context is still valid
-    if (!jctx->isActive) {
-        return -1;
+// Acquire a signer context for a callback invocation. The pointer handed to us
+// by the core is only dereferenced after it has been found in the registry, so
+// a stale pointer for an already-released context is ignored rather than read.
+// Returns JNI_FALSE when not found. Must be paired with release_signer_context.
+static jboolean acquire_signer_context(JavaSignerContext *ctx) {
+    jboolean found = JNI_FALSE;
+    pthread_mutex_lock(&g_signerContextsMutex);
+    for (SignerContextNode *node = g_signerContexts; node != NULL; node = node->next) {
+        if (node->context == ctx) {
+            ctx->refCount++;
+            found = JNI_TRUE;
+            break;
+        }
     }
-    
-    JNIEnv *env = get_jni_env();
-    if (env == NULL) {
-        return -1;
+    pthread_mutex_unlock(&g_signerContextsMutex);
+    return found;
+}
+
+// Drop one reference to a signer context, freeing it (and its callback global
+// ref) once the last reference is gone. If env is NULL the global ref cannot be
+// deleted and is leaked; the struct is still freed.
+static void release_signer_context(JNIEnv *env, JavaSignerContext *ctx) {
+    pthread_mutex_lock(&g_signerContextsMutex);
+    int remaining = --ctx->refCount;
+    pthread_mutex_unlock(&g_signerContextsMutex);
+    if (remaining == 0) {
+        if (env != NULL && ctx->callback != NULL) {
+            (*env)->DeleteGlobalRef(env, ctx->callback);
+        }
+        free(ctx);
     }
-    
+}
+
+// Registry lookup acquire/release for context-builder callbacks, same scheme as
+// the signer context.
+static jboolean acquire_context_callback(JavaContextCallback *ctx) {
+    jboolean found = JNI_FALSE;
+    pthread_mutex_lock(&g_contextCallbacksMutex);
+    for (ContextCallbackNode *node = g_contextCallbacks; node != NULL; node = node->next) {
+        if (node->context == ctx) {
+            ctx->refCount++;
+            found = JNI_TRUE;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_contextCallbacksMutex);
+    return found;
+}
+
+static void release_context_callback(JNIEnv *env, JavaContextCallback *ctx) {
+    pthread_mutex_lock(&g_contextCallbacksMutex);
+    int remaining = --ctx->refCount;
+    pthread_mutex_unlock(&g_contextCallbacksMutex);
+    if (remaining == 0) {
+        if (env != NULL && ctx->callback != NULL) {
+            (*env)->DeleteGlobalRef(env, ctx->callback);
+        }
+        free(ctx);
+    }
+}
+
+// Adds a context callback to the live registry, making it invocable. Returns
+// JNI_FALSE on allocation failure.
+static jboolean register_context_callback(JavaContextCallback *ctx) {
+    ContextCallbackNode *node = (ContextCallbackNode*)malloc(sizeof(ContextCallbackNode));
+    if (node == NULL) {
+        return JNI_FALSE;
+    }
+    node->context = ctx;
+    pthread_mutex_lock(&g_contextCallbacksMutex);
+    node->next = g_contextCallbacks;
+    g_contextCallbacks = node;
+    pthread_mutex_unlock(&g_contextCallbacksMutex);
+    return JNI_TRUE;
+}
+
+// Removes a context callback from the live registry. Later invocations from the
+// core no longer find it and are ignored. Returns JNI_TRUE if it was present.
+static jboolean unregister_context_callback(JavaContextCallback *ctx) {
+    jboolean removed = JNI_FALSE;
+    pthread_mutex_lock(&g_contextCallbacksMutex);
+    ContextCallbackNode **current = &g_contextCallbacks;
+    while (*current != NULL) {
+        if ((*current)->context == ctx) {
+            ContextCallbackNode *node = *current;
+            *current = node->next;
+            free(node);
+            removed = JNI_TRUE;
+            break;
+        }
+        current = &(*current)->next;
+    }
+    pthread_mutex_unlock(&g_contextCallbacksMutex);
+    return removed;
+}
+
+// Body of the signer callback, run while holding a reference on jctx.
+static intptr_t java_signer_callback_invoke(JNIEnv *env, JavaSignerContext *jctx,
+                                            const unsigned char *data, uintptr_t len,
+                                            unsigned char *signed_bytes, uintptr_t signed_len) {
     // Create byte array from data
     if (len > INT32_MAX) {
         throw_c2pa_exception(env, "Requested buffer too large for JNI");
@@ -443,42 +546,47 @@ static intptr_t java_signer_callback(const void *context, const unsigned char *d
     return sig_len;
 }
 
+// Signer callback function
+static intptr_t java_signer_callback(const void *context, const unsigned char *data, uintptr_t len,
+                                    unsigned char *signed_bytes, uintptr_t signed_len) {
+    JavaSignerContext *jctx = (JavaSignerContext*)context;
+    if (jctx == NULL || !acquire_signer_context(jctx)) {
+        return -1;
+    }
+
+    JNIEnv *env = get_jni_env();
+    intptr_t result = -1;
+    if (env != NULL) {
+        result = java_signer_callback_invoke(env, jctx, data, len, signed_bytes, signed_len);
+    }
+
+    release_signer_context(env, jctx);
+    return result;
+}
+
 // Progress callback trampoline. The Kotlin side is a Void observer, so this always
 // returns 1 (continue) — cancellation is exposed separately via C2PAContext.cancel().
 static int java_progress_callback(const void *context, enum C2paProgressPhase phase, uint32_t step, uint32_t total) {
     JavaContextCallback *jctx = (JavaContextCallback*)context;
-    if (jctx == NULL || !jctx->isActive) {
+    if (jctx == NULL || !acquire_context_callback(jctx)) {
         return 1;
     }
 
     JNIEnv *env = get_jni_env();
-    if (env == NULL) {
-        return 1;
+    if (env != NULL) {
+        // Bridge signature: onProgress(int phase, long step, long total) -> void
+        (*env)->CallVoidMethod(env, jctx->callback, jctx->method, (jint)phase, (jlong)step, (jlong)total);
+        check_exception(env);
     }
 
-    // Bridge signature: onProgress(int phase, long step, long total) -> void
-    (*env)->CallVoidMethod(env, jctx->callback, jctx->method, (jint)phase, (jlong)step, (jlong)total);
-    check_exception(env);
+    release_context_callback(env, jctx);
     return 1;
 }
 
-// HTTP resolver trampoline. Marshals the C request into the Kotlin bridge, reads back
-// status + body from the returned HttpResponse, and mallocs the body for Rust to free.
-// Returns 0 on success, -1 on error (with c2pa_error_set_last set).
-static int java_http_resolver_callback(void *context, const struct C2paHttpRequest *request,
-                                       struct C2paHttpResponse *response) {
-    JavaContextCallback *jctx = (JavaContextCallback*)context;
-    if (jctx == NULL || !jctx->isActive) {
-        c2pa_error_set_last("HTTP resolver is no longer active");
-        return -1;
-    }
-
-    JNIEnv *env = get_jni_env();
-    if (env == NULL) {
-        c2pa_error_set_last("Failed to attach JNI environment for HTTP resolver");
-        return -1;
-    }
-
+// Body of the HTTP resolver callback, run while holding a reference on jctx.
+static int java_http_resolver_invoke(JNIEnv *env, JavaContextCallback *jctx,
+                                     const struct C2paHttpRequest *request,
+                                     struct C2paHttpResponse *response) {
     jstring jurl = (request->url != NULL) ? cstring_to_jstring(env, request->url) : NULL;
     jstring jmethod = (request->method != NULL) ? cstring_to_jstring(env, request->method) : NULL;
     jstring jheaders = (request->headers != NULL) ? cstring_to_jstring(env, request->headers) : NULL;
@@ -538,6 +646,29 @@ static int java_http_resolver_callback(void *context, const struct C2paHttpReque
     }
 
     return 0;
+}
+
+// HTTP resolver trampoline. Marshals the C request into the Kotlin bridge, reads back
+// status + body from the returned HttpResponse, and mallocs the body for Rust to free.
+// Returns 0 on success, -1 on error (with c2pa_error_set_last set).
+static int java_http_resolver_callback(void *context, const struct C2paHttpRequest *request,
+                                       struct C2paHttpResponse *response) {
+    JavaContextCallback *jctx = (JavaContextCallback*)context;
+    if (jctx == NULL || !acquire_context_callback(jctx)) {
+        c2pa_error_set_last("HTTP resolver is no longer active");
+        return -1;
+    }
+
+    JNIEnv *env = get_jni_env();
+    int result = -1;
+    if (env == NULL) {
+        c2pa_error_set_last("Failed to attach JNI environment for HTTP resolver");
+    } else {
+        result = java_http_resolver_invoke(env, jctx, request, response);
+    }
+
+    release_context_callback(env, jctx);
+    return result;
 }
 
 // Native methods implementation
@@ -1513,37 +1644,50 @@ static void register_signer_context(struct C2paSigner *signer, JavaSignerContext
     }
 }
 
-// Unregister and free all signer contexts associated with a signer
-// (a CAWG combined signer may carry more than one after attach_signer_contexts).
+// Unregister all signer contexts associated with a signer (a CAWG combined
+// signer may carry more than one after attach_signer_contexts). Each context is
+// marked inactive and the registry's reference dropped; a context with an
+// in-flight callback stays allocated until that callback releases it.
 static void unregister_signer_context(struct C2paSigner *signer) {
-    pthread_mutex_lock(&g_signerContextsMutex);
+    SignerContextNode *toFree = NULL;
 
+    pthread_mutex_lock(&g_signerContextsMutex);
     SignerContextNode **current = &g_signerContexts;
     while (*current != NULL) {
         if ((*current)->signer == signer) {
-            SignerContextNode *toDelete = *current;
-            JavaSignerContext *ctx = toDelete->context;
+            SignerContextNode *node = *current;
+            *current = node->next;
+            JavaSignerContext *ctx = node->context;
 
-            // Mark context as inactive
             if (ctx != NULL) {
-                ctx->isActive = JNI_FALSE;
-
-                JNIEnv *env = get_jni_env();
-                if (env != NULL && ctx->callback != NULL) {
-                    (*env)->DeleteGlobalRef(env, ctx->callback);
+                if (--ctx->refCount == 0) {
+                    // Reuse the node to carry the context to the free pass below.
+                    node->next = toFree;
+                    toFree = node;
+                    continue;
                 }
-                free(ctx);
             }
-
-            *current = toDelete->next;
-            free(toDelete);
-            // Continue scanning — do not break, so all matches are removed.
+            free(node);
+            // Continue scanning — all matches are removed.
         } else {
             current = &(*current)->next;
         }
     }
-
     pthread_mutex_unlock(&g_signerContextsMutex);
+
+    // Free outside the mutex; DeleteGlobalRef needs a JNI environment.
+    if (toFree != NULL) {
+        JNIEnv *env = get_jni_env();
+        while (toFree != NULL) {
+            SignerContextNode *next = toFree->next;
+            if (env != NULL && toFree->context->callback != NULL) {
+                (*env)->DeleteGlobalRef(env, toFree->context->callback);
+            }
+            free(toFree->context);
+            free(toFree);
+            toFree = next;
+        }
+    }
 }
 
 // Detach all context nodes keyed by a signer from the registry and return them
@@ -1593,11 +1737,7 @@ static void free_detached_contexts(JNIEnv *env, SignerContextNode *nodes) {
         SignerContextNode *next = nodes->next;
         JavaSignerContext *ctx = nodes->context;
         if (ctx != NULL) {
-            ctx->isActive = JNI_FALSE;
-            if (env != NULL && ctx->callback != NULL) {
-                (*env)->DeleteGlobalRef(env, ctx->callback);
-            }
-            free(ctx);
+            release_signer_context(env, ctx);
         }
         free(nodes);
         nodes = next;
@@ -1671,8 +1811,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIE
         return 0;
     }
     
-    ctx->isActive = JNI_TRUE;
-    
+    ctx->refCount = 1;
+
     // Create the signer
     struct C2paSigner *signer = c2pa_signer_create(ctx, java_signer_callback, alg, ccerts, ctsaURL);
     
@@ -1933,18 +2073,16 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContext_cancelNative(JNIEnv
     return c2pa_context_cancel((struct C2paContext*)(uintptr_t)contextPtr);
 }
 
-// Frees a context callback (progress/HTTP-resolver) struct owned by a built context.
-// Called from C2PAContext.close() after the context itself has been freed.
+// Releases a context callback (progress/HTTP-resolver) struct owned by a built context.
+// Called from C2PAContext.close() after the context itself has been freed. A callback
+// invocation still in flight keeps the struct allocated until it completes.
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_freeCallbackContextNative(JNIEnv *env, jclass clazz, jlong callbackPtr) {
     if (callbackPtr == 0) {
         return;
     }
     JavaContextCallback *jctx = (JavaContextCallback*)(uintptr_t)callbackPtr;
-    jctx->isActive = JNI_FALSE;
-    if (jctx->callback != NULL) {
-        (*env)->DeleteGlobalRef(env, jctx->callback);
-    }
-    free(jctx);
+    unregister_context_callback(jctx);
+    release_context_callback(env, jctx);
 }
 
 // Context builder methods
@@ -2009,7 +2147,14 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
         return 0;
     }
 
-    jctx->isActive = JNI_TRUE;
+    jctx->refCount = 1;
+    if (!register_context_callback(jctx)) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
+                         "Failed to register progress callback");
+        return 0;
+    }
 
     int result = c2pa_context_builder_set_progress_callback(
         (struct C2paContextBuilder*)(uintptr_t)builderPtr,
@@ -2017,6 +2162,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
         java_progress_callback
     );
     if (result != 0) {
+        unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
         throw_c2pa_exception(env, "Failed to set progress callback");
@@ -2059,10 +2205,18 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         return 0;
     }
 
-    jctx->isActive = JNI_TRUE;
+    jctx->refCount = 1;
+    if (!register_context_callback(jctx)) {
+        (*env)->DeleteGlobalRef(env, jctx->callback);
+        free(jctx);
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
+                         "Failed to register HTTP resolver");
+        return 0;
+    }
 
     struct C2paHttpResolver *resolver = c2pa_http_resolver_create(jctx, java_http_resolver_callback);
     if (resolver == NULL) {
+        unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
         throw_c2pa_exception(env, "Failed to create HTTP resolver");
@@ -2073,6 +2227,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
     if (result != 0) {
         // set_http_resolver only consumes the resolver on success; free it on failure.
         c2pa_free(resolver);
+        unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
         throw_c2pa_exception(env, "Failed to set HTTP resolver");
