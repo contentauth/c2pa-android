@@ -275,8 +275,55 @@ static JNIEnv* get_jni_env() {
     return env;
 }
 
+// A Java exception raised inside a stream/signer/resolver callback cannot be left
+// pending while control returns into Rust: the FFI treats -1 as a recoverable error
+// and keeps calling JNI functions, which is undefined behavior with an exception
+// pending. Callbacks therefore clear and stash the throwable here, and the outer
+// JNI boundary rethrows it so callers see the app's real exception. Thread-local:
+// a callback stashes on the thread that runs it, and the boundary consumes it on
+// the same thread. A stash made on a Rust-spawned worker thread has no Java frame
+// to surface in and is dropped when the next stash or boundary clear replaces it.
+static __thread jthrowable g_stashedCallbackException = NULL;
+
+// Drops any exception stashed by a previous native call on this thread.
+static void clear_stashed_exception(JNIEnv *env) {
+    if (g_stashedCallbackException != NULL) {
+        (*env)->DeleteGlobalRef(env, g_stashedCallbackException);
+        g_stashedCallbackException = NULL;
+    }
+}
+
+// If a Java exception is pending, clears it and stashes it for the outer JNI
+// boundary. Returns 1 if an exception was pending.
+static int stash_pending_exception(JNIEnv *env) {
+    jthrowable pending = (*env)->ExceptionOccurred(env);
+    if (pending == NULL) {
+        return 0;
+    }
+    (*env)->ExceptionClear(env);
+    clear_stashed_exception(env);
+    g_stashedCallbackException = (jthrowable)(*env)->NewGlobalRef(env, pending);
+    (*env)->DeleteLocalRef(env, pending);
+    return 1;
+}
+
+// Rethrows the stashed callback exception, if any. Returns 1 if one was thrown.
+static int rethrow_stashed_exception(JNIEnv *env) {
+    if (g_stashedCallbackException == NULL) {
+        return 0;
+    }
+    (*env)->Throw(env, g_stashedCallbackException);
+    (*env)->DeleteGlobalRef(env, g_stashedCallbackException);
+    g_stashedCallbackException = NULL;
+    return 1;
+}
+
 // Helper to throw an exception with proper error message from C2PA
 static void throw_c2pa_exception(JNIEnv *env, const char *defaultMessage) {
+    // Prefer the app's own exception captured in a stream/signer/resolver callback.
+    if (rethrow_stashed_exception(env)) {
+        return;
+    }
     char *error = c2pa_error();
     if (error != NULL && strlen(error) > 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), error);
@@ -301,39 +348,41 @@ static jbyteArray safe_new_byte_array(JNIEnv *env, jsize size) {
     return array;
 }
 
-// Stream callbacks
+// Stream callbacks. Java exceptions are stashed rather than left pending, since
+// these return into Rust code that keeps making JNI calls after a -1.
 static intptr_t java_read_callback(struct StreamContext *context, uint8_t *data, intptr_t len) {
     JavaStreamContext *jctx = (JavaStreamContext*)context;
     JNIEnv *env = get_jni_env();
     if (env == NULL) {
         return -1;
     }
-    
+
     if (len > INT32_MAX) {
-        throw_c2pa_exception(env, "Requested buffer too large for JNI");
+        c2pa_error_set_last("Requested buffer too large for JNI");
         return -1;
     }
-    
+
     jbyteArray jdata = safe_new_byte_array(env, (jsize)len);
     if (jdata == NULL) {
+        stash_pending_exception(env);
         return -1;
     }
-    
+
     jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamReadMethod, jdata, (jlong)len);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         (*env)->DeleteLocalRef(env, jdata);
         return -1;
     }
-    
+
     if (result > 0 && result <= len) {
         (*env)->GetByteArrayRegion(env, jdata, 0, result, (jbyte*)data);
-        if (check_exception(env)) {
+        if (stash_pending_exception(env)) {
             (*env)->DeleteLocalRef(env, jdata);
             return -1;
         }
     }
     (*env)->DeleteLocalRef(env, jdata);
-    
+
     return (intptr_t)result;
 }
 
@@ -343,12 +392,12 @@ static intptr_t java_seek_callback(struct StreamContext *context, intptr_t offse
     if (env == NULL) {
         return -1;
     }
-    
+
     jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamSeekMethod, (jlong)offset, (jint)mode);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         return -1;
     }
-    
+
     return (intptr_t)result;
 }
 
@@ -358,29 +407,30 @@ static intptr_t java_write_callback(struct StreamContext *context, const uint8_t
     if (env == NULL) {
         return -1;
     }
-    
+
     if (len > INT32_MAX) {
-        throw_c2pa_exception(env, "Requested buffer too large for JNI");
+        c2pa_error_set_last("Requested buffer too large for JNI");
         return -1;
     }
-    
+
     jbyteArray jdata = safe_new_byte_array(env, (jsize)len);
     if (jdata == NULL) {
+        stash_pending_exception(env);
         return -1;
     }
-    
+
     (*env)->SetByteArrayRegion(env, jdata, 0, len, (const jbyte*)data);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         (*env)->DeleteLocalRef(env, jdata);
         return -1;
     }
-    
+
     jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamWriteMethod, jdata, (jlong)len);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         (*env)->DeleteLocalRef(env, jdata);
         return -1;
     }
-    
+
     (*env)->DeleteLocalRef(env, jdata);
     return (intptr_t)result;
 }
@@ -391,12 +441,12 @@ static intptr_t java_flush_callback(struct StreamContext *context) {
     if (env == NULL) {
         return -1;
     }
-    
+
     jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamFlushMethod);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         return -1;
     }
-    
+
     return (intptr_t)result;
 }
 
@@ -502,46 +552,47 @@ static intptr_t java_signer_callback_invoke(JNIEnv *env, JavaSignerContext *jctx
                                             unsigned char *signed_bytes, uintptr_t signed_len) {
     // Create byte array from data
     if (len > INT32_MAX) {
-        throw_c2pa_exception(env, "Requested buffer too large for JNI");
+        c2pa_error_set_last("Requested buffer too large for JNI");
         return -1;
     }
-    
+
     jbyteArray jdata = safe_new_byte_array(env, (jsize)len);
     if (jdata == NULL) {
+        stash_pending_exception(env);
         return -1;
     }
-    
+
     (*env)->SetByteArrayRegion(env, jdata, 0, len, (const jbyte*)data);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         (*env)->DeleteLocalRef(env, jdata);
         return -1;
     }
-    
+
     // Call the sign method
     jbyteArray jsignature = (jbyteArray)(*env)->CallObjectMethod(env, jctx->callback, jctx->signMethod, jdata);
     (*env)->DeleteLocalRef(env, jdata);
-    
-    if (check_exception(env)) {
+
+    if (stash_pending_exception(env)) {
         return -1;
     }
-    
+
     if (jsignature == NULL) {
         return -1;
     }
-    
+
     // Get signature data
     jsize sig_len = (*env)->GetArrayLength(env, jsignature);
     if (sig_len > signed_len) {
         (*env)->DeleteLocalRef(env, jsignature);
         return -1;
     }
-    
+
     (*env)->GetByteArrayRegion(env, jsignature, 0, sig_len, (jbyte*)signed_bytes);
-    if (check_exception(env)) {
+    if (stash_pending_exception(env)) {
         (*env)->DeleteLocalRef(env, jsignature);
         return -1;
     }
-    
+
     (*env)->DeleteLocalRef(env, jsignature);
     return sig_len;
 }
@@ -576,6 +627,8 @@ static int java_progress_callback(const void *context, enum C2paProgressPhase ph
     if (env != NULL) {
         // Bridge signature: onProgress(int phase, long step, long total) -> void
         (*env)->CallVoidMethod(env, jctx->callback, jctx->method, (jint)phase, (jlong)step, (jlong)total);
+        // The observer must not affect the operation, so its exceptions are
+        // logged and dropped rather than stashed for the outer boundary.
         check_exception(env);
     }
 
@@ -605,7 +658,7 @@ static int java_http_resolver_invoke(JNIEnv *env, JavaContextCallback *jctx,
     if (jheaders != NULL) (*env)->DeleteLocalRef(env, jheaders);
     if (jbody != NULL) (*env)->DeleteLocalRef(env, jbody);
 
-    if (check_exception(env) || jresp == NULL) {
+    if (stash_pending_exception(env) || jresp == NULL) {
         c2pa_error_set_last("HTTP resolver callback failed");
         return -1;
     }
@@ -764,6 +817,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Stream_releaseStreamNative(JNIE
 
 // Reader native methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv *env, jclass clazz, jstring format, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (format == NULL || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
                          "Format and stream cannot be null");
@@ -801,6 +855,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromManifestDataAndStreamNative(JNIEnv *env, jclass clazz, jstring format, jlong streamPtr, jbyteArray manifestData) {
+    clear_stashed_exception(env);
     if (format == NULL || streamPtr == 0 || manifestData == NULL) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
                          "Format, stream, and manifest data cannot be null");
@@ -952,6 +1007,7 @@ JNIEXPORT jboolean JNICALL Java_org_contentauth_c2pa_Reader_isEmbeddedNative(JNI
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring uri, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (readerPtr == 0 || uri == NULL || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
                          "Reader, URI, and stream cannot be null");
@@ -997,6 +1053,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_contentauth_c2pa_Builder_supportedMimeTy
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIEnv *env, jclass clazz, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
                          "Stream cannot be null");
@@ -1105,6 +1162,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setBasePathNative(JNIEn
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addResourceNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring uri, jlong streamPtr) {
+    clear_stashed_exception(env);
     const char *curi = jstring_to_cstring(env, uri);
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     int result = c2pa_builder_add_resource((struct C2paBuilder*)(uintptr_t)builderPtr, curi, stream);
@@ -1113,6 +1171,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addResourceNative(JNIEn
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromStreamNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring ingredientJson, jstring format, jlong streamPtr) {
+    clear_stashed_exception(env);
     const char *cingredientJson = jstring_to_cstring(env, ingredientJson);
     const char *cformat = jstring_to_cstring(env, format);
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
@@ -1128,12 +1187,14 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromStream
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_toArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
+    clear_stashed_exception(env);
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     return c2pa_builder_to_archive(builder, stream);
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Builder and stream cannot be null");
@@ -1146,6 +1207,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiv
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_writeIngredientArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring ingredientId, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || ingredientId == NULL || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Builder, ingredient id, and stream cannot be null");
@@ -1216,6 +1278,7 @@ static jobject build_sign_result(JNIEnv *env, int64_t size, const unsigned char 
 }
 
 JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr, jlong signerPtr) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0 || signerPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
                          "Builder, format, streams, and signer cannot be null");
@@ -1237,8 +1300,11 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
     
     release_cstring(env, format, cformat);
 
-    // On failure, return NULL and let the Kotlin wrapper raise C2PAError from c2pa_error().
+    // On failure, surface the app's own exception stashed by a stream/signer
+    // callback if there is one; otherwise return NULL and let the Kotlin
+    // wrapper raise C2PAError from c2pa_error().
     if (size < 0) {
+        rethrow_stashed_exception(env);
         return NULL;
     }
 
@@ -1246,6 +1312,7 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
 }
 
 JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Builder, format, and streams cannot be null");
@@ -1267,8 +1334,11 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNativ
 
     release_cstring(env, format, cformat);
 
-    // On failure, return NULL and let the Kotlin wrapper raise C2PAError from c2pa_error().
+    // On failure, surface the app's own exception stashed by a stream/signer
+    // callback if there is one; otherwise return NULL and let the Kotlin
+    // wrapper raise C2PAError from c2pa_error().
     if (size < 0) {
+        rethrow_stashed_exception(env);
         return NULL;
     }
 
@@ -1316,6 +1386,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
 }
 
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmbeddableNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr, jstring dataHash, jstring format, jlong assetPtr) {
+    clear_stashed_exception(env);
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paSigner *signer = (struct C2paSigner*)(uintptr_t)signerPtr;
     const char *cdataHash = jstring_to_cstring(env, dataHash);
@@ -1340,6 +1411,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmb
 }
 
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || format == NULL) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Builder and format cannot be null");
@@ -1537,6 +1609,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_hashMdatBytesNative(JNI
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_updateHashFromStreamNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || format == NULL || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Builder, format, and stream cannot be null");
@@ -2298,6 +2371,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withDefinitionNative(J
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (builderPtr == 0 || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Builder and stream cannot be null");
@@ -2338,6 +2412,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_nativeFromContext(JNIEn
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring format, jlong streamPtr) {
+    clear_stashed_exception(env);
     if (readerPtr == 0 || format == NULL || streamPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Reader, format, and stream cannot be null");
@@ -2365,6 +2440,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring format, jlong streamPtr, jlong fragmentPtr) {
+    clear_stashed_exception(env);
     if (readerPtr == 0 || format == NULL || streamPtr == 0 || fragmentPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
                          "Reader, format, stream, and fragment cannot be null");
