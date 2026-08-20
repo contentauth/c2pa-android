@@ -24,6 +24,7 @@ import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.SeekMode
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 
 /** StreamTests - Stream operations and I/O tests */
 abstract class StreamTests : TestBase() {
@@ -51,6 +52,39 @@ abstract class StreamTests : TestBase() {
                     )
                 }
             }
+        }
+    }
+
+    suspend fun testStreamExceptionPropagation(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Stream Exception Propagation") {
+            // An exception thrown by a stream callback must surface to the caller as
+            // itself, not as a generic error, and must not be left pending while the
+            // native operation keeps running.
+            val marker = "stream deliberately broken"
+            var thrown: Throwable? = null
+
+            CallbackStream(
+                reader = { _, _ -> throw IOException(marker) },
+                seeker = { _, _ -> 0L },
+            ).use { stream ->
+                try {
+                    Reader.fromStream("image/jpeg", stream).use { }
+                } catch (e: Throwable) {
+                    thrown = e
+                }
+            }
+
+            val success = thrown is IOException && thrown?.message == marker
+            TestResult(
+                "Stream Exception Propagation",
+                success,
+                if (success) {
+                    "Stream callback exception surfaced as the original IOException"
+                } else {
+                    "Expected the callback's IOException, got: $thrown"
+                },
+                "Thrown: $thrown",
+            )
         }
     }
 
