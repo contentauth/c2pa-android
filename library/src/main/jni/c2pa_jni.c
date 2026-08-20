@@ -352,19 +352,6 @@ static int finish_stashed_exception(JNIEnv *env, int failed) {
     return 0;
 }
 
-// Helper to throw an exception with proper error message from C2PA. Does not
-// consult the callback stash; boundaries that run callbacks rethrow it first via
-// finish_stashed_exception.
-static void throw_c2pa_exception(JNIEnv *env, const char *defaultMessage) {
-    char *error = c2pa_error();
-    if (error != NULL && strlen(error) > 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), error);
-        c2pa_free(error);
-    } else {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), defaultMessage);
-    }
-}
-
 // Helper for safe array allocation with error handling
 static jbyteArray safe_new_byte_array(JNIEnv *env, jsize size) {
     if (size < 0) {
@@ -880,11 +867,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv
 
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, reader == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, reader == NULL);
     if (reader == NULL) {
-        throw_c2pa_exception(env, "Failed to create reader from stream");
         return 0;
     }
 
@@ -967,7 +951,6 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toJsonNative(JNIEnv *
     char *json = c2pa_reader_json(reader);
     
     if (json == NULL) {
-        throw_c2pa_exception(env, "Failed to generate JSON from reader");
         return NULL;
     }
     
@@ -987,7 +970,6 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(
     char *json = c2pa_reader_detailed_json(reader);
     
     if (json == NULL) {
-        throw_c2pa_exception(env, "Failed to generate detailed JSON from reader");
         return NULL;
     }
     
@@ -1007,7 +989,6 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_crjsonNative(JNIEnv *
     char *json = c2pa_reader_crjson(reader);
 
     if (json == NULL) {
-        throw_c2pa_exception(env, "Failed to generate crJSON from reader");
         return NULL;
     }
 
@@ -1118,11 +1099,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIE
         c2pa_free(ctx);
     }
 
-    if (finish_stashed_exception(env, builder == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, builder == NULL);
     if (builder == NULL) {
-        throw_c2pa_exception(env, "Failed to create builder from archive");
         return 0;
     }
 
@@ -1418,7 +1396,6 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
     release_cstring(env, format, cformat);
     
     if (size < 0 || manifestBytes == NULL) {
-        throw_c2pa_exception(env, "Failed to create data hashed placeholder");
         return NULL;
     }
     
@@ -2307,7 +2284,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        throw_c2pa_exception(env, "Failed to set progress callback");
         return 0;
     }
 
@@ -2363,7 +2339,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        throw_c2pa_exception(env, "Failed to create HTTP resolver");
         return 0;
     }
 
@@ -2374,7 +2349,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        throw_c2pa_exception(env, "Failed to set HTTP resolver");
         return 0;
     }
 
@@ -2409,7 +2383,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromContext(JNIE
     struct C2paBuilder *builder = c2pa_builder_from_context(context);
 
     if (builder == NULL) {
-        throw_c2pa_exception(env, "Failed to create builder from context");
         return 0;
     }
 
@@ -2434,7 +2407,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withDefinitionNative(J
     release_cstring(env, manifestJson, cmanifestJson);
 
     if (newBuilder == NULL) {
-        throw_c2pa_exception(env, "Failed to set builder definition");
         return 0;
     }
 
@@ -2455,11 +2427,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIE
     // This consumes the old builder pointer
     struct C2paBuilder *newBuilder = c2pa_builder_with_archive(builder, stream);
 
-    if (finish_stashed_exception(env, newBuilder == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, newBuilder == NULL);
     if (newBuilder == NULL) {
-        throw_c2pa_exception(env, "Failed to set builder archive");
         return 0;
     }
 
@@ -2478,7 +2447,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_nativeFromContext(JNIEn
     struct C2paReader *reader = c2pa_reader_from_context(context);
 
     if (reader == NULL) {
-        throw_c2pa_exception(env, "Failed to create reader from context");
         return 0;
     }
 
@@ -2505,11 +2473,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv
     struct C2paReader *newReader = c2pa_reader_with_stream(reader, cformat, stream);
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, newReader == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, newReader == NULL);
     if (newReader == NULL) {
-        throw_c2pa_exception(env, "Failed to configure reader with stream");
         return 0;
     }
 
@@ -2537,11 +2502,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIE
     struct C2paReader *newReader = c2pa_reader_with_fragment(reader, cformat, stream, fragment);
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, newReader == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, newReader == NULL);
     if (newReader == NULL) {
-        throw_c2pa_exception(env, "Failed to configure reader with fragment");
         return 0;
     }
 
