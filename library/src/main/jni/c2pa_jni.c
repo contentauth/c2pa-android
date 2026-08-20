@@ -386,6 +386,17 @@ static jbyteArray safe_new_byte_array(JNIEnv *env, jsize size) {
     return array;
 }
 
+// Allocates a byte array for an int64 FFI size. jsize is 32-bit, so sizes that
+// do not fit a Java array are rejected instead of silently truncated.
+static jbyteArray new_byte_array_for_size(JNIEnv *env, int64_t size) {
+    if (size < 0 || size > INT32_MAX) {
+        throw_checked(env, "java/lang/IllegalArgumentException",
+                      "Native buffer size exceeds Java array limit");
+        return NULL;
+    }
+    return safe_new_byte_array(env, (jsize)size);
+}
+
 // Stream callbacks. Java exceptions are stashed rather than left pending, since
 // these return into Rust code that keeps making JNI calls after a -1.
 static intptr_t java_read_callback(struct StreamContext *context, uint8_t *data, intptr_t len) {
@@ -1066,7 +1077,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(
     if (finish_stashed_exception(env, result < 0)) {
         return -1;
     }
-    return (jlong)(uintptr_t)result;
+    return (jlong)result;
 }
 
 JNIEXPORT jobjectArray JNICALL Java_org_contentauth_c2pa_Reader_supportedMimeTypesNative(JNIEnv *env, jclass clazz) {
@@ -1318,13 +1329,13 @@ static jobject build_sign_result(JNIEnv *env, int64_t size, const unsigned char 
 
     jbyteArray jmanifestBytes = NULL;
     if (manifestBytes != NULL && size > 0) {
-        jmanifestBytes = safe_new_byte_array(env, size);
+        jmanifestBytes = new_byte_array_for_size(env, size);
         if (jmanifestBytes == NULL) {
             c2pa_free(manifestBytes);
             return NULL;
         }
 
-        (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, size, (const jbyte*)manifestBytes);
+        (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, (jsize)size, (const jbyte*)manifestBytes);
         if (check_exception(env)) {
             c2pa_free(manifestBytes);
             return NULL;
@@ -1415,6 +1426,11 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
         return NULL;
     }
     
+    if (reservedSize < 0 || (uint64_t)reservedSize != (uint64_t)(uintptr_t)reservedSize) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Reserved size out of range");
+        return NULL;
+    }
+
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     const char *cformat = jstring_to_cstring(env, format);
     if (cformat == NULL) {
@@ -1430,13 +1446,13 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
         return NULL;
     }
     
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
     }
     
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1480,7 +1496,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmb
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, (jsize)size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1518,12 +1534,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNat
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
     }
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1552,12 +1568,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_placeholderNative
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
     }
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1640,12 +1656,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_formatEmbeddableN
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(resultBytes);
         return NULL;
     }
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)resultBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)resultBytes);
     if (check_exception(env)) {
         c2pa_free(resultBytes);
         return NULL;
@@ -1659,6 +1675,10 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setFixedSizeMerkleNativ
         throw_checked(env, "java/lang/IllegalArgumentException", "Builder cannot be null");
         return -1;
     }
+    if (fixedSizeKb < 0 || (uint64_t)fixedSizeKb != (uint64_t)(uintptr_t)fixedSizeKb) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Fixed chunk size out of range");
+        return -1;
+    }
     return c2pa_builder_set_fixed_size_merkle((struct C2paBuilder*)(uintptr_t)builderPtr, (uintptr_t)fixedSizeKb);
 }
 
@@ -1669,6 +1689,11 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_hashMdatBytesNative(JNI
     }
 
     jsize dataLen = (*env)->GetArrayLength(env, data);
+    if (mdatId < 0 || (uint64_t)mdatId != (uint64_t)(uintptr_t)mdatId) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "mdat id out of range");
+        return -1;
+    }
+
     jbyte *dataPtr = (*env)->GetByteArrayElements(env, data, NULL);
     if (dataPtr == NULL) {
         check_exception(env);
