@@ -172,6 +172,12 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestUnicodeManifestRoundTrip() = runBlocking {
+        val result = testUnicodeManifestRoundTrip()
+        assertTrue(result.success, "Unicode Manifest Round Trip test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestClosedHandleValidation() = runBlocking {
         val result = testClosedHandleValidation()
         assertTrue(result.success, "Closed Handle Validation test failed: ${result.message}")
