@@ -33,7 +33,12 @@ typealias StreamWriter = (buffer: ByteArray, count: Int) -> Int
 
 typealias StreamFlusher = () -> Int
 
-/** Abstract base class for C2PA streams */
+/**
+ * Abstract base class for C2PA streams.
+ *
+ * Constructing a stream allocates a native handle; the constructor throws [C2PAError.Api] if the
+ * core cannot create it.
+ */
 abstract class Stream : Closeable {
 
     companion object {
@@ -47,7 +52,11 @@ abstract class Stream : Closeable {
         get() = nativeHandle
 
     init {
-        nativeHandle = createStreamNative()
+        val handle = createStreamNative()
+        if (handle == 0L) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to create stream")
+        }
+        nativeHandle = handle
     }
 
     /** Read data from the stream */
