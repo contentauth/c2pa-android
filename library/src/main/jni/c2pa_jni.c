@@ -802,26 +802,52 @@ static int java_progress_callback(const void *context, enum C2paProgressPhase ph
 static int java_http_resolver_invoke(JNIEnv *env, JavaContextCallback *jctx,
                                      const struct C2paHttpRequest *request,
                                      struct C2paHttpResponse *response) {
-    jstring jurl = (request->url != NULL) ? cstring_to_jstring(env, request->url) : NULL;
-    jstring jmethod = (request->method != NULL) ? cstring_to_jstring(env, request->method) : NULL;
-    jstring jheaders = (request->headers != NULL) ? cstring_to_jstring(env, request->headers) : NULL;
+    // Marshal the request. Every JNI call here can fail with an exception
+    // pending (allocation failure, or a bridge string that the transcoder
+    // rejects); none of it may be left pending across the next JNI call, so
+    // each step is checked and stashed for the outer boundary.
+    jstring jurl = NULL, jmethod = NULL, jheaders = NULL;
     jbyteArray jbody = NULL;
-    if (request->body != NULL && request->body_len > 0 && request->body_len <= INT32_MAX) {
-        jbody = safe_new_byte_array(env, (jsize)request->body_len);
-        if (jbody != NULL) {
-            (*env)->SetByteArrayRegion(env, jbody, 0, (jsize)request->body_len, (const jbyte*)request->body);
+    const char *marshalError = "Failed to marshal HTTP request for resolver";
+    int marshalled = 0;
+    do {
+        if (request->url != NULL) {
+            jurl = cstring_to_jstring(env, request->url);
+            if (jurl == NULL) break;
         }
-    }
+        if (request->method != NULL) {
+            jmethod = cstring_to_jstring(env, request->method);
+            if (jmethod == NULL) break;
+        }
+        if (request->headers != NULL) {
+            jheaders = cstring_to_jstring(env, request->headers);
+            if (jheaders == NULL) break;
+        }
+        if (request->body != NULL && request->body_len > 0) {
+            if (request->body_len > INT32_MAX) {
+                marshalError = "HTTP request body too large for JNI";
+                break;
+            }
+            jbody = safe_new_byte_array(env, (jsize)request->body_len);
+            if (jbody == NULL) break;
+            (*env)->SetByteArrayRegion(env, jbody, 0, (jsize)request->body_len, (const jbyte*)request->body);
+            if ((*env)->ExceptionCheck(env)) break;
+        }
+        marshalled = 1;
+    } while (0);
 
-    // Bridge: resolve(String url, String method, String headers, byte[] body) -> HttpResponse
-    jobject jresp = (*env)->CallObjectMethod(env, jctx->callback, jctx->method, jurl, jmethod, jheaders, jbody);
+    jobject jresp = NULL;
+    if (marshalled) {
+        // Bridge: resolve(String url, String method, String headers, byte[] body) -> HttpResponse
+        jresp = (*env)->CallObjectMethod(env, jctx->callback, jctx->method, jurl, jmethod, jheaders, jbody);
+    }
     if (jurl != NULL) (*env)->DeleteLocalRef(env, jurl);
     if (jmethod != NULL) (*env)->DeleteLocalRef(env, jmethod);
     if (jheaders != NULL) (*env)->DeleteLocalRef(env, jheaders);
     if (jbody != NULL) (*env)->DeleteLocalRef(env, jbody);
 
     if (stash_pending_exception(env) || jresp == NULL) {
-        c2pa_error_set_last("HTTP resolver callback failed");
+        c2pa_error_set_last(marshalled ? "HTTP resolver callback failed" : marshalError);
         return -1;
     }
 
@@ -836,9 +862,20 @@ static int java_http_resolver_invoke(JNIEnv *env, JavaContextCallback *jctx,
         return -1;
     }
 
+    // Read the response back. The getters are app code and may throw.
     jint status = (*env)->CallIntMethod(env, jresp, getStatus);
+    if (stash_pending_exception(env)) {
+        (*env)->DeleteLocalRef(env, jresp);
+        c2pa_error_set_last("HttpResponse.getStatus failed");
+        return -1;
+    }
     jbyteArray respBody = (jbyteArray)(*env)->CallObjectMethod(env, jresp, getBody);
     (*env)->DeleteLocalRef(env, jresp);
+    if (stash_pending_exception(env)) {
+        if (respBody != NULL) (*env)->DeleteLocalRef(env, respBody);
+        c2pa_error_set_last("HttpResponse.getBody failed");
+        return -1;
+    }
 
     response->status = (int32_t)status;
     response->body = NULL;
@@ -854,6 +891,12 @@ static int java_http_resolver_invoke(JNIEnv *env, JavaContextCallback *jctx,
                 return -1;
             }
             (*env)->GetByteArrayRegion(env, respBody, 0, blen, (jbyte*)buf);
+            if (stash_pending_exception(env)) {
+                free(buf);
+                (*env)->DeleteLocalRef(env, respBody);
+                c2pa_error_set_last("Failed to copy HTTP response body");
+                return -1;
+            }
             response->body = buf;          // Rust takes ownership and frees with free()
             response->body_len = (uintptr_t)blen;
         }
