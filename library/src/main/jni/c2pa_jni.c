@@ -931,7 +931,7 @@ static int java_http_resolver_callback(void *context, const struct C2paHttpReque
 
 // Native methods implementation
 
-JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_version(JNIEnv *env, jclass clazz) {
+JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_versionNative(JNIEnv *env, jclass clazz) {
     char *version = c2pa_version();
     jstring result = cstring_to_jstring(env, version);
     c2pa_free(version);
@@ -1001,9 +1001,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIE
     );
     
     if (stream == NULL) {
+        // Sentinel return; the Kotlin constructor raises C2PAError from c2pa_error().
         (*env)->DeleteGlobalRef(env, ctx->streamObject);
         free(ctx);
-        throw_checked(env, "java/lang/RuntimeException", "Failed to create C2PA stream");
         return 0;
     }
     
