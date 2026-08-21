@@ -1473,7 +1473,7 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
         return NULL;
     }
     
-    if (reservedSize < 0 || (uint64_t)reservedSize != (uint64_t)(uintptr_t)reservedSize) {
+    if ((uint64_t)reservedSize != (uint64_t)(uintptr_t)reservedSize) {
         throw_checked(env, "java/lang/IllegalArgumentException", "Reserved size out of range");
         return NULL;
     }
