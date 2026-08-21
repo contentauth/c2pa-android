@@ -88,6 +88,54 @@ abstract class StreamTests : TestBase() {
         }
     }
 
+    suspend fun testStreamWriteExceptionPropagation(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Stream Write Exception Propagation") {
+            // The write path through a result-code entry point (toArchive) must surface
+            // the callback's exception as itself, and the exception must not linger:
+            // an unrelated failure on the same thread afterwards must raise its own
+            // error, not the stream's.
+            val marker = "write deliberately broken"
+            var archiveThrown: Throwable? = null
+            var laterThrown: Throwable? = null
+
+            Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                CallbackStream(
+                    writer = { _, _ -> throw IOException(marker) },
+                    seeker = { _, _ -> 0L },
+                    flusher = { 0 },
+                ).use { dest ->
+                    try {
+                        builder.toArchive(dest)
+                    } catch (e: Throwable) {
+                        archiveThrown = e
+                    }
+                }
+            }
+
+            Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                try {
+                    builder.withDefinition("{ not valid json")
+                } catch (e: Throwable) {
+                    laterThrown = e
+                }
+            }
+
+            val propagated = archiveThrown is IOException && archiveThrown?.message == marker
+            val isolated = laterThrown != null && laterThrown !is IOException
+            val success = propagated && isolated
+            TestResult(
+                "Stream Write Exception Propagation",
+                success,
+                when {
+                    success -> "toArchive surfaced the IOException and it did not leak into the next call"
+                    !propagated -> "Expected the writer's IOException from toArchive, got: $archiveThrown"
+                    else -> "Stale stream exception leaked into an unrelated call: $laterThrown"
+                },
+                "toArchive threw: $archiveThrown\nwithDefinition threw: $laterThrown",
+            )
+        }
+    }
+
     suspend fun testStreamFileOptions(): TestResult = withContext(Dispatchers.IO) {
         runTest("Stream File Options") {
             val tempFile =

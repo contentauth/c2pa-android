@@ -175,6 +175,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     val streamTests = AppStreamTests(context)
     results.add(streamTests.testStreamOperations())
     results.add(streamTests.testStreamExceptionPropagation())
+    results.add(streamTests.testStreamWriteExceptionPropagation())
     results.add(streamTests.testStreamFileOptions())
     results.add(streamTests.testWriteOnlyStreams())
     results.add(streamTests.testCustomStreamCallbacks())

@@ -279,10 +279,16 @@ static JNIEnv* get_jni_env() {
 // pending while control returns into Rust: the FFI treats -1 as a recoverable error
 // and keeps calling JNI functions, which is undefined behavior with an exception
 // pending. Callbacks therefore clear and stash the throwable here, and the outer
-// JNI boundary rethrows it so callers see the app's real exception. Thread-local:
-// a callback stashes on the thread that runs it, and the boundary consumes it on
-// the same thread. A stash made on a Rust-spawned worker thread has no Java frame
-// to surface in and is dropped when the next stash or boundary clear replaces it.
+// JNI boundary rethrows it so callers see the app's real exception.
+//
+// Contract: a stash never outlives the JNI entry point whose FFI call produced
+// it. Every entry point that runs callbacks clears any leftover at entry and
+// calls finish_stashed_exception on every exit after the FFI call, which rethrows
+// the stash on failure and drops it on success. Entry points that do not run
+// callbacks never consult the stash. Thread-local: a callback stashes on the
+// thread that runs it, and the boundary consumes it on the same thread. A stash
+// made on a Rust-spawned worker thread has no Java frame to surface in; it is
+// dropped when the next stash on that thread replaces it.
 static __thread jthrowable g_stashedCallbackException = NULL;
 
 // Drops any exception stashed by a previous native call on this thread.
@@ -318,12 +324,22 @@ static int rethrow_stashed_exception(JNIEnv *env) {
     return 1;
 }
 
-// Helper to throw an exception with proper error message from C2PA
-static void throw_c2pa_exception(JNIEnv *env, const char *defaultMessage) {
-    // Prefer the app's own exception captured in a stream/signer/resolver callback.
-    if (rethrow_stashed_exception(env)) {
-        return;
+// Consumes the stash at the boundary that produced it. On failure the app's own
+// exception is rethrown so it takes precedence over the core's error string; on
+// success a stash left by a callback whose failure the core tolerated is dropped
+// rather than leaking into a later call. Returns 1 if an exception was thrown.
+static int finish_stashed_exception(JNIEnv *env, int failed) {
+    if (failed) {
+        return rethrow_stashed_exception(env);
     }
+    clear_stashed_exception(env);
+    return 0;
+}
+
+// Helper to throw an exception with proper error message from C2PA. Does not
+// consult the callback stash; boundaries that run callbacks rethrow it first via
+// finish_stashed_exception.
+static void throw_c2pa_exception(JNIEnv *env, const char *defaultMessage) {
     char *error = c2pa_error();
     if (error != NULL && strlen(error) > 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), error);
@@ -846,6 +862,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv
 
     release_cstring(env, format, cformat);
 
+    if (finish_stashed_exception(env, reader == NULL)) {
+        return 0;
+    }
     if (reader == NULL) {
         throw_c2pa_exception(env, "Failed to create reader from stream");
         return 0;
@@ -906,7 +925,10 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromManifestDataAndStre
 
     (*env)->ReleaseByteArrayElements(env, manifestData, data, JNI_ABORT);
     release_cstring(env, format, cformat);
-    
+
+    if (finish_stashed_exception(env, reader == NULL)) {
+        return 0;
+    }
     return (jlong)(uintptr_t)reader;
 }
 
@@ -1023,9 +1045,12 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     
     int64_t result = c2pa_reader_resource_to_stream(reader, curi, stream);
-    
+
     release_cstring(env, uri, curi);
-    
+
+    if (finish_stashed_exception(env, result < 0)) {
+        return -1;
+    }
     return (jlong)(uintptr_t)result;
 }
 
@@ -1075,6 +1100,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIE
         c2pa_free(ctx);
     }
 
+    if (finish_stashed_exception(env, builder == NULL)) {
+        return 0;
+    }
     if (builder == NULL) {
         throw_c2pa_exception(env, "Failed to create builder from archive");
         return 0;
@@ -1167,6 +1195,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addResourceNative(JNIEn
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     int result = c2pa_builder_add_resource((struct C2paBuilder*)(uintptr_t)builderPtr, curi, stream);
     release_cstring(env, uri, curi);
+    finish_stashed_exception(env, result < 0);
     return result;
 }
 
@@ -1182,7 +1211,8 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromStream
     
     release_cstring(env, ingredientJson, cingredientJson);
     release_cstring(env, format, cformat);
-    
+
+    finish_stashed_exception(env, result < 0);
     return result;
 }
 
@@ -1190,7 +1220,9 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_toArchiveNative(JNIEnv 
     clear_stashed_exception(env);
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
-    return c2pa_builder_to_archive(builder, stream);
+    int result = c2pa_builder_to_archive(builder, stream);
+    finish_stashed_exception(env, result < 0);
+    return result;
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
@@ -1203,7 +1235,9 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiv
 
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
-    return c2pa_builder_add_ingredient_from_archive(builder, stream);
+    int result = c2pa_builder_add_ingredient_from_archive(builder, stream);
+    finish_stashed_exception(env, result < 0);
+    return result;
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_writeIngredientArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring ingredientId, jlong streamPtr) {
@@ -1224,6 +1258,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_writeIngredientArchiveN
         (struct C2paBuilder*)(uintptr_t)builderPtr, cingredientId, stream
     );
     release_cstring(env, ingredientId, cingredientId);
+    finish_stashed_exception(env, result < 0);
     return result;
 }
 
@@ -1303,8 +1338,8 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
     // On failure, surface the app's own exception stashed by a stream/signer
     // callback if there is one; otherwise return NULL and let the Kotlin
     // wrapper raise C2PAError from c2pa_error().
+    finish_stashed_exception(env, size < 0);
     if (size < 0) {
-        rethrow_stashed_exception(env);
         return NULL;
     }
 
@@ -1337,8 +1372,8 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNativ
     // On failure, surface the app's own exception stashed by a stream/signer
     // callback if there is one; otherwise return NULL and let the Kotlin
     // wrapper raise C2PAError from c2pa_error().
+    finish_stashed_exception(env, size < 0);
     if (size < 0) {
-        rethrow_stashed_exception(env);
         return NULL;
     }
 
@@ -1398,11 +1433,17 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmb
     
     release_cstring(env, dataHash, cdataHash);
     release_cstring(env, format, cformat);
-    
+
+    if (finish_stashed_exception(env, size < 0 || manifestBytes == NULL)) {
+        if (manifestBytes != NULL) {
+            c2pa_free(manifestBytes);
+        }
+        return NULL;
+    }
     if (size < 0 || manifestBytes == NULL) {
         return NULL;
     }
-    
+
     jbyteArray result = (*env)->NewByteArray(env, size);
     (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
     c2pa_free(manifestBytes);
@@ -1428,6 +1469,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNat
     int64_t size = c2pa_builder_sign_embeddable(builder, cformat, &manifestBytes);
     release_cstring(env, format, cformat);
 
+    if (finish_stashed_exception(env, size < 0 || manifestBytes == NULL)) {
+        if (manifestBytes != NULL) {
+            c2pa_free(manifestBytes);
+        }
+        return NULL;
+    }
     if (size < 0 || manifestBytes == NULL) {
         return NULL;
     }
@@ -1628,6 +1675,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_updateHashFromStreamNat
     );
 
     release_cstring(env, format, cformat);
+    finish_stashed_exception(env, result < 0);
     return result;
 }
 
@@ -2384,6 +2432,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIE
     // This consumes the old builder pointer
     struct C2paBuilder *newBuilder = c2pa_builder_with_archive(builder, stream);
 
+    if (finish_stashed_exception(env, newBuilder == NULL)) {
+        return 0;
+    }
     if (newBuilder == NULL) {
         throw_c2pa_exception(env, "Failed to set builder archive");
         return 0;
@@ -2431,6 +2482,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv
     struct C2paReader *newReader = c2pa_reader_with_stream(reader, cformat, stream);
     release_cstring(env, format, cformat);
 
+    if (finish_stashed_exception(env, newReader == NULL)) {
+        return 0;
+    }
     if (newReader == NULL) {
         throw_c2pa_exception(env, "Failed to configure reader with stream");
         return 0;
@@ -2460,6 +2514,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIE
     struct C2paReader *newReader = c2pa_reader_with_fragment(reader, cformat, stream, fragment);
     release_cstring(env, format, cformat);
 
+    if (finish_stashed_exception(env, newReader == NULL)) {
+        return 0;
+    }
     if (newReader == NULL) {
         throw_c2pa_exception(env, "Failed to configure reader with fragment");
         return 0;
