@@ -332,6 +332,7 @@ abstract class CoreTests : TestBase() {
         }
     }
 
+    @Suppress("DEPRECATION")
     suspend fun testLoadSettings(): TestResult = withContext(Dispatchers.IO) {
         runTest("Load Settings") {
             val settingsJson =

@@ -183,6 +183,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * @return A new [Signer] instance configured according to the settings.
          * @throws C2PAError if the settings are invalid or the signer cannot be created.
          */
+        @Suppress("DEPRECATION")
         @JvmStatic
         @Throws(C2PAError::class)
         private fun fromSettings(settings: String, format: String): Signer =
@@ -209,6 +210,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
             "Global settings apply relies on the deprecated c2pa_load_settings. Configure settings " +
                 "in C2PASettings and build a C2PAContext instead.",
         )
+        @Suppress("DEPRECATION")
         @JvmStatic
         @Throws(C2PAError::class)
         fun loadSettings(settings: String, format: String) {
