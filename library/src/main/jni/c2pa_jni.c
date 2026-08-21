@@ -282,7 +282,9 @@ static const char* jstring_to_cstring(JNIEnv *env, jstring jstr) {
     return out;
 }
 
-// Frees a string produced by jstring_to_cstring.
+// Frees a string produced by jstring_to_cstring. The env and jstr parameters
+// are unused now that the buffer is malloc'd rather than pinned; they are kept
+// so the many call sites keep their release-what-you-converted shape.
 static void release_cstring(JNIEnv *env, jstring jstr, const char* cstr) {
     (void)env;
     (void)jstr;
@@ -2230,16 +2232,16 @@ static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***o
             throw_checked(env, "java/lang/IllegalArgumentException", "Array element cannot be null");
             return -1;
         }
+        // jstring_to_cstring returns a malloc'd buffer, so the array takes
+        // ownership directly; release_cstring_array frees each element.
         const char *cs = jstring_to_cstring(env, js);
-        char *copy = cs != NULL ? strdup(cs) : NULL;
-        release_cstring(env, js, cs);
         (*env)->DeleteLocalRef(env, js);
-        if (copy == NULL) {
+        if (cs == NULL) {
+            // Conversion failed with its exception already pending.
             release_cstring_array(arr, len);
-            throw_checked(env, "java/lang/OutOfMemoryError", "Failed to copy array element");
             return -1;
         }
-        arr[i] = copy;
+        arr[i] = cs;
     }
     *out_array = arr;
     *out_len = len;
