@@ -954,13 +954,29 @@ abstract class BuilderTests : TestBase() {
                 }
             }
 
+            // Use after close is always IllegalStateException, regardless of how many
+            // other arguments the method takes; null arguments on a live handle stay
+            // IllegalArgumentException.
             val builder = Builder.fromJson(TEST_MANIFEST_JSON)
             builder.close()
-            expect("toArchive on closed builder", IllegalArgumentException::class.java) {
+            expect("toArchive on closed builder", IllegalStateException::class.java) {
                 ByteArrayStream().use { builder.toArchive(it) }
             }
-            expect("addResource on closed builder", IllegalArgumentException::class.java) {
+            expect("addResource on closed builder", IllegalStateException::class.java) {
                 ByteArrayStream(byteArrayOf(1)).use { builder.addResource("thumbnail", it) }
+            }
+            expect("setNoEmbed on closed builder", IllegalStateException::class.java) {
+                builder.setNoEmbed()
+            }
+
+            val testImageData = loadResourceAsBytes("adobe_20220124_ci")
+            val reader = ByteArrayStream(testImageData).use { Reader.fromStream("image/jpeg", it) }
+            reader.close()
+            expect("json on closed reader", IllegalStateException::class.java) {
+                reader.json()
+            }
+            expect("resource on closed reader", IllegalStateException::class.java) {
+                ByteArrayStream().use { reader.resource("thumbnail", it) }
             }
 
             val certPem = loadResourceAsString("es256_certs")
@@ -980,7 +996,7 @@ abstract class BuilderTests : TestBase() {
                 } else {
                     "Unexpected: $unexpected"
                 },
-                "Checked toArchive, addResource, reserveSize on closed handles",
+                "Checked builder, reader, and signer methods on closed handles",
             )
         }
     }
