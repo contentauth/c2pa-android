@@ -70,6 +70,12 @@ class AndroidCoreTests : CoreTests() {
     }
 
     @Test
+    fun runTestReaderResourceErrorHandling() = runBlocking {
+        val result = testReaderResourceErrorHandling()
+        assertTrue(result.success, "Reader Resource Error Handling test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestLoadSettings() = runBlocking {
         val result = testLoadSettings()
         assertTrue(result.success, "Load Settings test failed: ${result.message}")
