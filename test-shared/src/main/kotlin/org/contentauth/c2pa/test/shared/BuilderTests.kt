@@ -938,6 +938,34 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testEmbeddedNulRejected(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Embedded NUL Rejected") {
+            // The JNI bridge hands the core NUL-terminated strings, so a Kotlin string
+            // containing U+0000 must be rejected at the boundary rather than silently
+            // truncated at the NUL.
+            var thrown: Throwable? = null
+            Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                try {
+                    builder.setRemoteURL("https://example.com/manifest\u0000.c2pa")
+                } catch (e: Throwable) {
+                    thrown = e
+                }
+            }
+
+            val success = thrown is IllegalArgumentException
+            TestResult(
+                "Embedded NUL Rejected",
+                success,
+                if (success) {
+                    "String containing U+0000 rejected with IllegalArgumentException"
+                } else {
+                    "Expected IllegalArgumentException, got: $thrown"
+                },
+                "Thrown: $thrown",
+            )
+        }
+    }
+
     suspend fun testUnicodeManifestRoundTrip(): TestResult = withContext(Dispatchers.IO) {
         runTest("Unicode Manifest Round Trip") {
             try {
