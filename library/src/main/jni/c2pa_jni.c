@@ -219,7 +219,8 @@ static void throw_checked(JNIEnv *env, const char *className, const char *messag
 // U+FFFD in both directions.
 
 // Converts a jstring to a NUL-terminated, malloc-allocated standard UTF-8 string.
-// Release with release_cstring.
+// Release with release_cstring. Returns NULL with an exception pending if the
+// string contains U+0000 or the conversion cannot be allocated.
 static const char* jstring_to_cstring(JNIEnv *env, jstring jstr) {
     if (jstr == NULL) return NULL;
 
@@ -242,6 +243,15 @@ static const char* jstring_to_cstring(JNIEnv *env, jstring jstr) {
     size_t o = 0;
     for (jsize i = 0; i < ulen; i++) {
         uint32_t cp = chars[i];
+        if (cp == 0) {
+            // The result is a NUL-terminated C string, so an embedded U+0000
+            // would silently truncate it. Reject it rather than hand the core
+            // a shorter string than the caller passed.
+            free(out);
+            (*env)->ReleaseStringChars(env, jstr, chars);
+            throw_checked(env, "java/lang/IllegalArgumentException", "String must not contain U+0000");
+            return NULL;
+        }
         if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < ulen &&
             chars[i + 1] >= 0xDC00 && chars[i + 1] <= 0xDFFF) {
             cp = 0x10000 + ((cp - 0xD800) << 10) + (chars[i + 1] - 0xDC00);
