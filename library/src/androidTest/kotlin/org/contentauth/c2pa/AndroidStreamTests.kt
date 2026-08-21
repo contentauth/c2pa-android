@@ -52,6 +52,12 @@ class AndroidStreamTests : StreamTests() {
     }
 
     @Test
+    fun runTestStreamWriteExceptionPropagation() = runBlocking {
+        val result = testStreamWriteExceptionPropagation()
+        assertTrue(result.success, "Stream Write Exception Propagation test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestStreamFileOptions() = runBlocking {
         val result = testStreamFileOptions()
         assertTrue(result.success, "Stream File Options test failed: ${result.message}")
