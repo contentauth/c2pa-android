@@ -37,14 +37,17 @@ typedef struct {
 } JavaStreamContext;
 
 // Signer callback context. The core may invoke a callback with its user_data
-// pointer at any time until every object derived from the owning signer is
-// gone, and provides no destructor hook, so a trampoline must never
-// dereference the raw pointer it is handed. Instead, liveness is a registry
-// lookup: a context is invocable only while it is present in its registry, and
-// refCount (guarded by the registry mutex, one reference held by the registry
-// and one per in-flight invocation) defers the free until the last holder
-// releases. A stale pointer from the core is simply not found and ignored.
+// at any time until every object derived from the owning signer is gone, and
+// provides no destructor hook, so a trampoline must never treat what it is
+// handed as a pointer. The core is given an opaque id that is never reused, and
+// liveness is a registry lookup: a context is invocable only while an entry
+// with that id is present in its registry, and refCount (guarded by the
+// registry mutex, one reference held by the registry and one per in-flight
+// invocation) defers the free until the last holder releases. A stale id from
+// the core is simply not found and ignored, and can never alias a newer context
+// the way a recycled heap address could.
 typedef struct {
+    uintptr_t id;          // Opaque token handed to the core as user_data
     jobject callback;      // Global reference
     jmethodID signMethod;
     int refCount;
@@ -55,6 +58,7 @@ typedef struct {
 // released when that context is closed, with the same registry-lookup liveness
 // scheme as JavaSignerContext (under g_contextCallbacksMutex).
 typedef struct {
+    uintptr_t id;          // Opaque token handed to the core as user_data
     jobject callback;      // Global reference to the Kotlin bridge object
     jmethodID method;      // Cached bridge method id
     int refCount;
@@ -75,6 +79,18 @@ static SignerContextNode *g_signerContexts = NULL;
 static pthread_mutex_t g_signerContextsMutex = PTHREAD_MUTEX_INITIALIZER;
 static ContextCallbackNode *g_contextCallbacks = NULL;
 static pthread_mutex_t g_contextCallbacksMutex = PTHREAD_MUTEX_INITIALIZER;
+
+// Monotonic source of callback-context ids. Never reused for the lifetime of
+// the process; 0 is reserved so a NULL user_data never matches.
+static uintptr_t g_nextCallbackId = 1;
+static pthread_mutex_t g_callbackIdMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static uintptr_t next_callback_id(void) {
+    pthread_mutex_lock(&g_callbackIdMutex);
+    uintptr_t id = g_nextCallbackId++;
+    pthread_mutex_unlock(&g_callbackIdMutex);
+    return id;
+}
 
 // JNI OnLoad - save JavaVM reference and cache IDs
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -466,17 +482,18 @@ static intptr_t java_flush_callback(struct StreamContext *context) {
     return (intptr_t)result;
 }
 
-// Acquire a signer context for a callback invocation. The pointer handed to us
-// by the core is only dereferenced after it has been found in the registry, so
-// a stale pointer for an already-released context is ignored rather than read.
-// Returns JNI_FALSE when not found. Must be paired with release_signer_context.
-static jboolean acquire_signer_context(JavaSignerContext *ctx) {
-    jboolean found = JNI_FALSE;
+// Acquire a signer context for a callback invocation. The token handed to us by
+// the core is an id, never a pointer; it is resolved through the registry, so a
+// stale id for an already-released context is not found and ignored. Returns
+// NULL when not found. Must be paired with release_signer_context.
+static JavaSignerContext *acquire_signer_context(const void *token) {
+    uintptr_t id = (uintptr_t)token;
+    JavaSignerContext *found = NULL;
     pthread_mutex_lock(&g_signerContextsMutex);
     for (SignerContextNode *node = g_signerContexts; node != NULL; node = node->next) {
-        if (node->context == ctx) {
-            ctx->refCount++;
-            found = JNI_TRUE;
+        if (node->context != NULL && node->context->id == id) {
+            node->context->refCount++;
+            found = node->context;
             break;
         }
     }
@@ -501,13 +518,14 @@ static void release_signer_context(JNIEnv *env, JavaSignerContext *ctx) {
 
 // Registry lookup acquire/release for context-builder callbacks, same scheme as
 // the signer context.
-static jboolean acquire_context_callback(JavaContextCallback *ctx) {
-    jboolean found = JNI_FALSE;
+static JavaContextCallback *acquire_context_callback(const void *token) {
+    uintptr_t id = (uintptr_t)token;
+    JavaContextCallback *found = NULL;
     pthread_mutex_lock(&g_contextCallbacksMutex);
     for (ContextCallbackNode *node = g_contextCallbacks; node != NULL; node = node->next) {
-        if (node->context == ctx) {
-            ctx->refCount++;
-            found = JNI_TRUE;
+        if (node->context->id == id) {
+            node->context->refCount++;
+            found = node->context;
             break;
         }
     }
@@ -616,8 +634,8 @@ static intptr_t java_signer_callback_invoke(JNIEnv *env, JavaSignerContext *jctx
 // Signer callback function
 static intptr_t java_signer_callback(const void *context, const unsigned char *data, uintptr_t len,
                                     unsigned char *signed_bytes, uintptr_t signed_len) {
-    JavaSignerContext *jctx = (JavaSignerContext*)context;
-    if (jctx == NULL || !acquire_signer_context(jctx)) {
+    JavaSignerContext *jctx = acquire_signer_context(context);
+    if (jctx == NULL) {
         return -1;
     }
 
@@ -634,8 +652,8 @@ static intptr_t java_signer_callback(const void *context, const unsigned char *d
 // Progress callback trampoline. The Kotlin side is a Void observer, so this always
 // returns 1 (continue) — cancellation is exposed separately via C2PAContext.cancel().
 static int java_progress_callback(const void *context, enum C2paProgressPhase phase, uint32_t step, uint32_t total) {
-    JavaContextCallback *jctx = (JavaContextCallback*)context;
-    if (jctx == NULL || !acquire_context_callback(jctx)) {
+    JavaContextCallback *jctx = acquire_context_callback(context);
+    if (jctx == NULL) {
         return 1;
     }
 
@@ -722,8 +740,8 @@ static int java_http_resolver_invoke(JNIEnv *env, JavaContextCallback *jctx,
 // Returns 0 on success, -1 on error (with c2pa_error_set_last set).
 static int java_http_resolver_callback(void *context, const struct C2paHttpRequest *request,
                                        struct C2paHttpResponse *response) {
-    JavaContextCallback *jctx = (JavaContextCallback*)context;
-    if (jctx == NULL || !acquire_context_callback(jctx)) {
+    JavaContextCallback *jctx = acquire_context_callback(context);
+    if (jctx == NULL) {
         c2pa_error_set_last("HTTP resolver is no longer active");
         return -1;
     }
@@ -1933,9 +1951,10 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIE
     }
     
     ctx->refCount = 1;
+    ctx->id = next_callback_id();
 
-    // Create the signer
-    struct C2paSigner *signer = c2pa_signer_create(ctx, java_signer_callback, alg, ccerts, ctsaURL);
+    // Create the signer. The core receives the opaque id, not the struct pointer.
+    struct C2paSigner *signer = c2pa_signer_create((const void*)ctx->id, java_signer_callback, alg, ccerts, ctsaURL);
     
     release_cstring(env, certificateChain, ccerts);
     release_cstring(env, tsaURL, ctsaURL);
@@ -2269,6 +2288,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
     }
 
     jctx->refCount = 1;
+    jctx->id = next_callback_id();
     if (!register_context_callback(jctx)) {
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
@@ -2277,9 +2297,10 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
         return 0;
     }
 
+    // The core receives the opaque id, not the struct pointer.
     int result = c2pa_context_builder_set_progress_callback(
         (struct C2paContextBuilder*)(uintptr_t)builderPtr,
-        jctx,
+        (const void*)jctx->id,
         java_progress_callback
     );
     if (result != 0) {
@@ -2327,6 +2348,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
     }
 
     jctx->refCount = 1;
+    jctx->id = next_callback_id();
     if (!register_context_callback(jctx)) {
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
@@ -2335,7 +2357,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         return 0;
     }
 
-    struct C2paHttpResolver *resolver = c2pa_http_resolver_create(jctx, java_http_resolver_callback);
+    // The core receives the opaque id, not the struct pointer.
+    struct C2paHttpResolver *resolver = c2pa_http_resolver_create((void*)jctx->id, java_http_resolver_callback);
     if (resolver == NULL) {
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
