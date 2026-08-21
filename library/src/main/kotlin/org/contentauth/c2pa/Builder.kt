@@ -93,7 +93,8 @@ import org.contentauth.c2pa.manifest.ManifestValidator
  * ## Resource Management
  *
  * Builder implements [Closeable] and must be closed when done to free native resources. Use `use {
- * }` or explicitly call `close()`.
+ * }` or explicitly call `close()`. Calling any method after `close()` (or after a failed
+ * [withDefinition] / [withArchive], which consume the builder) throws [IllegalStateException].
  *
  * @property ptr Internal pointer to the native C2PA builder instance
  * @see Reader
