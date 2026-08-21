@@ -59,7 +59,8 @@ import java.io.Closeable
  * ## Resource Management
  *
  * Reader implements [Closeable] and must be closed when done to free native resources. Use `use {
- * }` or explicitly call `close()`.
+ * }` or explicitly call `close()`. Calling any method after `close()` (or after a failed
+ * [withStream] / [withFragment], which consume the reader) throws [IllegalStateException].
  *
  * @property ptr Internal pointer to the native C2PA reader instance
  * @see Builder
