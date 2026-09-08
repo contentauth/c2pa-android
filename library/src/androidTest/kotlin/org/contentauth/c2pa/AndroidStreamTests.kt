@@ -90,4 +90,23 @@ class AndroidStreamTests : StreamTests() {
         )
     }
 
+    @Test
+    fun runTestLargeAssetStreamChunking() = runBlocking {
+        val result = testLargeAssetStreamChunking()
+        assertTrue(
+            result.success,
+            "Large Asset Stream Chunking test failed: ${result.message}",
+        )
+    }
+
+    /** Builds a 200 MB asset on the device, so it needs roughly 400 MB of scratch space. */
+    @Test
+    fun runTestVeryLargeAssetStreamChunking() = runBlocking {
+        val result = testVeryLargeAssetStreamChunking()
+        assertTrue(
+            result.success,
+            "Very Large Asset Stream Chunking test failed: ${result.message}",
+        )
+    }
+
 }

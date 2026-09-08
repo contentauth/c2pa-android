@@ -508,8 +508,19 @@ static jbyteArray new_byte_array_for_size(JNIEnv *env, int64_t size) {
     return safe_new_byte_array(env, (jsize)size);
 }
 
+// Largest slice of a stream request mirrored into a Java array at one time. The core asks for a
+// whole contiguous hash range in a single call, which for a video is most of the file, so sizing
+// the array to the request made peak Java heap a function of asset size and threw
+// OutOfMemoryError on large assets. Bounding it keeps the cost constant.
+#define C2PA_STREAM_CHUNK_BYTES (1 << 20)
+
 // Stream callbacks. Java exceptions are stashed rather than left pending, since
 // these return into Rust code that keeps making JNI calls after a -1.
+//
+// A read serves at most one chunk and reports the short count, which is a legal answer the core
+// reassembles by looping. A write cannot do the same: reporting a short count would make
+// correctness depend on every caller looping, and a caller that did not would silently truncate
+// the asset. Writes therefore loop here and report the whole length.
 static intptr_t java_read_callback(struct StreamContext *context, uint8_t *data, intptr_t len) {
     JavaStreamContext *jctx = (JavaStreamContext*)context;
     JNIEnv *env = get_jni_env();
@@ -517,25 +528,36 @@ static intptr_t java_read_callback(struct StreamContext *context, uint8_t *data,
         return -1;
     }
 
-    if (len > INT32_MAX) {
-        c2pa_error_set_last("Requested buffer too large for JNI");
-        return -1;
+    if (len <= 0) {
+        return 0;
     }
 
-    jbyteArray jdata = safe_new_byte_array(env, (jsize)len);
+    // Capping first also removes any need to reject requests above INT32_MAX: an oversized
+    // request becomes several bounded ones rather than a hard failure.
+    jsize want = len > C2PA_STREAM_CHUNK_BYTES ? C2PA_STREAM_CHUNK_BYTES : (jsize)len;
+
+    jbyteArray jdata = safe_new_byte_array(env, want);
     if (jdata == NULL) {
         stash_pending_exception(env);
         return -1;
     }
 
-    jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamReadMethod, jdata, (jlong)len);
+    jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamReadMethod, jdata, (jlong)want);
     if (stash_pending_exception(env)) {
         (*env)->DeleteLocalRef(env, jdata);
         return -1;
     }
 
-    if (result > 0 && result <= len) {
-        (*env)->GetByteArrayRegion(env, jdata, 0, result, (jbyte*)data);
+    if (result > want) {
+        // Copying only what was asked for while reporting more would hand the core bytes that
+        // were never written.
+        (*env)->DeleteLocalRef(env, jdata);
+        c2pa_error_set_last("Stream read reported more bytes than were requested");
+        return -1;
+    }
+
+    if (result > 0) {
+        (*env)->GetByteArrayRegion(env, jdata, 0, (jsize)result, (jbyte*)data);
         if (stash_pending_exception(env)) {
             (*env)->DeleteLocalRef(env, jdata);
             return -1;
@@ -568,31 +590,44 @@ static intptr_t java_write_callback(struct StreamContext *context, const uint8_t
         return -1;
     }
 
-    if (len > INT32_MAX) {
-        c2pa_error_set_last("Requested buffer too large for JNI");
-        return -1;
+    if (len <= 0) {
+        return 0;
     }
 
-    jbyteArray jdata = safe_new_byte_array(env, (jsize)len);
-    if (jdata == NULL) {
-        stash_pending_exception(env);
-        return -1;
-    }
+    intptr_t written = 0;
+    while (written < len) {
+        intptr_t remaining = len - written;
+        jsize want = remaining > C2PA_STREAM_CHUNK_BYTES ? C2PA_STREAM_CHUNK_BYTES : (jsize)remaining;
 
-    (*env)->SetByteArrayRegion(env, jdata, 0, len, (const jbyte*)data);
-    if (stash_pending_exception(env)) {
+        jbyteArray jdata = safe_new_byte_array(env, want);
+        if (jdata == NULL) {
+            stash_pending_exception(env);
+            return -1;
+        }
+
+        (*env)->SetByteArrayRegion(env, jdata, 0, want, (const jbyte*)(data + written));
+        if (stash_pending_exception(env)) {
+            (*env)->DeleteLocalRef(env, jdata);
+            return -1;
+        }
+
+        jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamWriteMethod, jdata, (jlong)want);
         (*env)->DeleteLocalRef(env, jdata);
-        return -1;
+        if (stash_pending_exception(env)) {
+            return -1;
+        }
+
+        // A stream that accepts nothing, or claims more than it was given, would otherwise spin
+        // here or leave the caller believing bytes reached the asset.
+        if (result <= 0 || result > want) {
+            c2pa_error_set_last("Stream write did not accept the bytes it was given");
+            return -1;
+        }
+
+        written += (intptr_t)result;
     }
 
-    jlong result = (*env)->CallLongMethod(env, jctx->streamObject, g_streamWriteMethod, jdata, (jlong)len);
-    if (stash_pending_exception(env)) {
-        (*env)->DeleteLocalRef(env, jdata);
-        return -1;
-    }
-
-    (*env)->DeleteLocalRef(env, jdata);
-    return (intptr_t)result;
+    return written;
 }
 
 static intptr_t java_flush_callback(struct StreamContext *context) {

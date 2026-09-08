@@ -38,6 +38,10 @@ typealias StreamFlusher = () -> Int
  *
  * Constructing a stream allocates a native handle; the constructor throws [C2PAError.Api] if the
  * core cannot create it.
+ *
+ * Reads and writes arrive in bounded slices rather than one call per logical range, so that memory
+ * use stays independent of asset size. An implementation whose per-call cost is high, such as one
+ * issuing a network request per read, should buffer internally.
  */
 abstract class Stream : Closeable {
 
@@ -59,16 +63,48 @@ abstract class Stream : Closeable {
         nativeHandle = handle
     }
 
-    /** Read data from the stream */
+    /**
+     * Reads up to [length] bytes into [buffer], starting at index 0.
+     *
+     * Implementations must honour [length] rather than the size of [buffer], and must return the
+     * number of bytes actually read. A short read is not an error; the library reassembles a
+     * larger range from as many calls as it takes. Return 0 to signal the end of the stream.
+     *
+     * @param buffer Destination for the bytes read.
+     * @param length Maximum number of bytes to read.
+     * @return Bytes read, 0 at the end of the stream, or a negative value on error.
+     */
     abstract fun read(buffer: ByteArray, length: Long): Long
 
-    /** Seek to a position in the stream */
+    /**
+     * Seeks to a position in the stream.
+     *
+     * @param offset Offset in bytes, interpreted relative to [mode].
+     * @param mode The origin to seek from, as a [SeekMode] value.
+     * @return The new absolute position, or a negative value on error.
+     */
     abstract fun seek(offset: Long, mode: Int): Long
 
-    /** Write data to the stream */
+    /**
+     * Writes up to [length] bytes from [data], starting at index 0.
+     *
+     * Implementations must honour [length] rather than the size of [data], and must return the
+     * number of bytes actually written. Returning fewer is allowed: the remainder is offered
+     * again in a further call. Returning 0 is treated as the stream making no progress and fails
+     * the operation, so an implementation that cannot accept bytes should report an error rather
+     * than nothing.
+     *
+     * @param data Source of the bytes to write.
+     * @param length Number of bytes to write.
+     * @return Bytes written, or a negative value on error.
+     */
     abstract fun write(data: ByteArray, length: Long): Long
 
-    /** Flush the stream */
+    /**
+     * Flushes any buffered output.
+     *
+     * @return 0 on success, or a negative value on error.
+     */
     abstract fun flush(): Long
 
     override fun close() {
