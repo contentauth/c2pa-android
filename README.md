@@ -47,6 +47,29 @@ make library
 make run-test-app
 ```
 
+### Building against a local c2pa-rs checkout
+
+By default the build downloads prebuilt native libraries for the c2pa-rs release
+pinned by `c2paVersion` in `library/gradle.properties`. To build against an
+unreleased c2pa-rs instead, build the four Android archives from a checkout and
+point the build at them:
+
+```bash
+# Uses upstream's own `make release TARGET=<triple>`; needs rustup and Docker
+.github/scripts/build-c2pa-archives.sh ~/src/c2pa-rs /tmp/c2pa-archives
+
+make library C2PA_ARCHIVE_DIR=/tmp/c2pa-archives
+```
+
+`C2PA_ARCHIVE_DIR` works with `make download-binaries`, `make library` and
+`make tests`, and is forwarded to `make tests-with-server`. The archive filename
+is matched by target triple rather than by version, because a self-built archive
+carries upstream's working version (for example `v0.91.0-dev`) rather than the
+pinned one. Switching the directory, or switching back to release mode,
+re-extracts automatically.
+
+This is also how the `track/c2pa-rs-main` branch is built in CI.
+
 ## Repository structure
 
 - `/library` - Android library module with C2PA Kotlin APIs and JNI bindings
@@ -379,6 +402,7 @@ The project includes a Makefile with the following targets:
 - `download-binaries` - Download pre-built binaries from GitHub releases
 - `library` - Complete library build: setup, download, and build AAR
 - `clean` - Remove build artifacts
+- `C2PA_ARCHIVE_DIR=<dir>` - With `download-binaries`, `library` or `tests`: use local c2pa archives instead of a release
 
 **Testing:**
 

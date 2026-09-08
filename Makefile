@@ -2,6 +2,14 @@
         run-test-app run-example-app signing-server-start signing-server-stop signing-server-status \
         signing-server-build tests-with-server lint format docs docs-clean
 
+# Optional. Build the native libraries from archives in this directory instead of
+# downloading them from a c2pa-rs release. Expects the four
+# c2pa-<version>-<triple>.zip files exactly as upstream's
+# `make release TARGET=<triple>` produces them;
+# .github/scripts/build-c2pa-archives.sh builds that set from a c2pa-rs checkout.
+C2PA_ARCHIVE_DIR ?=
+C2PA_ARCHIVE_FLAGS := $(if $(C2PA_ARCHIVE_DIR),-Pc2paArchiveDir="$(abspath $(C2PA_ARCHIVE_DIR))",)
+
 # Default target
 all: library
 
@@ -13,19 +21,19 @@ setup:
 # Download pre-built binaries from GitHub releases using Gradle task
 download-binaries:
 	@echo "Downloading pre-built binaries..."
-	@./gradlew :library:downloadNativeLibraries
+	@./gradlew :library:downloadNativeLibraries $(C2PA_ARCHIVE_FLAGS)
 
 # Complete library build: setup, download binaries, and build
 library: setup download-binaries
 	@echo "Building library..."
-	@./gradlew :library:clean :library:assembleRelease
+	@./gradlew :library:clean :library:assembleRelease $(C2PA_ARCHIVE_FLAGS)
 	@echo "Library build completed. AAR available at library/build/outputs/aar/c2pa-release.aar"
 
 # Run all tests including hardware signing tests (requires device/emulator)
 # If signing server tests are included, start the server first with: make signing-server-start
 tests:
 	@echo "Running all instrumented tests..."
-	@./gradlew :library:connectedDebugAndroidTest :test-app:app:connectedDebugAndroidTest
+	@./gradlew :library:connectedDebugAndroidTest :test-app:app:connectedDebugAndroidTest $(C2PA_ARCHIVE_FLAGS)
 
 # Generate code coverage report (requires device/emulator)
 coverage:
@@ -204,6 +212,7 @@ help:
 	@echo "  download-binaries     - Download pre-built binaries from GitHub releases"
 	@echo "  library               - Complete library build (default)"
 	@echo "  clean                 - Remove build artifacts"
+	@echo "  C2PA_ARCHIVE_DIR=<dir> - With download-binaries/library/tests: use local c2pa archives instead of a release"
 	@echo ""
 	@echo "Testing:"
 	@echo "  tests                 - Run all tests including hardware signing tests"

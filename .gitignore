@@ -49,3 +49,6 @@ library/src/main/jni/c2pa.h
 .signing-server.pid
 signing-server.log
 signing-server/build/
+
+.claude*
+CLAUDE.md

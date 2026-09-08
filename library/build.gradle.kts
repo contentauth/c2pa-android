@@ -11,6 +11,7 @@ each license.
 */
 
 import org.gradle.api.publish.maven.MavenPublication
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.Properties
@@ -216,6 +217,16 @@ publishing {
 
 // Native library download configuration
 val c2paVersion = project.properties["c2paVersion"] as String
+
+// Optional. When set to a directory holding c2pa-<version>-<triple>.zip archives,
+// downloadNativeLibraries takes the native libraries from there instead of downloading
+// the release pinned by c2paVersion. Normally passed on the command line via
+// `make library C2PA_ARCHIVE_DIR=<dir>`; see the Makefile and .github/scripts/build-c2pa-archives.sh.
+val c2paArchiveDir =
+    (project.properties["c2paArchiveDir"] as String?)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { File(it) }
 val architectures =
     mapOf(
         "arm64-v8a" to "aarch64-linux-android",
@@ -244,23 +255,38 @@ tasks.register("downloadNativeLibraries") {
     val destHeader = projectDir.file("src/main/jni/c2pa.h")
     val archMap = architectures.toMap()
     val version = c2paVersion
+    val archiveDir = c2paArchiveDir
 
     doLast {
-        println("Using C2PA version: $version")
+        if (archiveDir != null) {
+            require(archiveDir.isDirectory) {
+                "c2paArchiveDir is not a directory: ${archiveDir.absolutePath}"
+            }
+            println("Using C2PA archives from: ${archiveDir.absolutePath}")
+        } else {
+            println("Using C2PA version: $version")
+        }
         downloadDir.mkdirs()
 
         // The existence checks below reuse whatever was downloaded previously, so a
         // c2paVersion bump must explicitly invalidate stale artifacts.
+        //
+        // In local-archive mode the version is not a usable cache key: c2paVersion is
+        // unchanged while the archive contents differ from run to run. Stamping a
+        // literal instead forces a re-extract every local run, and makes the first
+        // release-mode run after a local one invalidate too, since the literal never
+        // equals a version string.
         val versionStamp = downloadDir.resolve("c2pa-version.txt")
-        if (versionStamp.takeIf { it.exists() }?.readText()?.trim() != version) {
-            println("C2PA version changed, removing previously downloaded libraries")
+        val stamp = if (archiveDir != null) "local-archives" else version
+        if (archiveDir != null || versionStamp.takeIf { it.exists() }?.readText()?.trim() != stamp) {
+            println("C2PA archive source changed, removing previously downloaded libraries")
             archMap.keys.forEach { arch ->
                 jniLibsDir.file("$arch/libc2pa_c.so").asFile.delete()
                 downloadDir.resolve("$arch.zip").delete()
                 downloadDir.resolve(arch).deleteRecursively()
             }
             destHeader.asFile.delete()
-            versionStamp.writeText(version)
+            versionStamp.writeText(stamp)
         }
 
         var headerDownloaded = false
@@ -269,22 +295,38 @@ tasks.register("downloadNativeLibraries") {
             val soFile = jniLibsDir.file("$arch/libc2pa_c.so").asFile
 
             if (!soFile.exists()) {
-                println("Downloading C2PA library for $arch...")
+                println("Preparing C2PA library for $arch...")
 
-                val zipFile = downloadDir.resolve("$arch.zip")
                 val extractDir = downloadDir.resolve(arch)
 
-                // Download the zip file
-                val url =
-                    "https://github.com/contentauth/c2pa-rs/releases/download/c2pa-$version/c2pa-$version-$target.zip"
-                println("Downloading from: $url")
-                if (!zipFile.exists()) {
-                    val connection = URI(url).toURL().openConnection() as HttpURLConnection
-                    connection.instanceFollowRedirects = true
-                    connection.inputStream.use { input ->
-                        zipFile.outputStream().use { output -> input.copyTo(output) }
+                val zipFile =
+                    if (archiveDir != null) {
+                        // The version is globbed because self-built archives carry upstream's
+                        // working version (e.g. v0.91.0-dev), which never matches c2paVersion.
+                        val matches =
+                            archiveDir.listFiles { file ->
+                                file.name.startsWith("c2pa-") && file.name.endsWith("-$target.zip")
+                            }?.sorted().orEmpty()
+                        require(matches.size == 1) {
+                            "expected exactly one c2pa-*-$target.zip in ${archiveDir.absolutePath}, " +
+                                "found ${matches.size}${matches.joinToString("") { "\n  " + it.name }}"
+                        }
+                        println("Using local archive: ${matches[0]}")
+                        matches[0]
+                    } else {
+                        val downloaded = downloadDir.resolve("$arch.zip")
+                        val url =
+                            "https://github.com/contentauth/c2pa-rs/releases/download/c2pa-$version/c2pa-$version-$target.zip"
+                        println("Downloading from: $url")
+                        if (!downloaded.exists()) {
+                            val connection = URI(url).toURL().openConnection() as HttpURLConnection
+                            connection.instanceFollowRedirects = true
+                            connection.inputStream.use { input ->
+                                downloaded.outputStream().use { output -> input.copyTo(output) }
+                            }
+                        }
+                        downloaded
                     }
-                }
 
                 // Extract the zip file
                 extractDir.mkdirs()
