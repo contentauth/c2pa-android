@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -38,13 +38,13 @@ jobs:
         run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ steps.java.outputs.version }}
           distribution: "temurin"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Build AAR
         run: make library
@@ -56,7 +56,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: AVD cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: avd-cache
         with:
           path: |
@@ -93,14 +93,14 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.api-level }}
           path: library/build/reports/androidTests/
 
       - name: Upload coverage reports to GitHub
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-reports-${{ matrix.api-level }}
           path: |
@@ -110,7 +110,7 @@ jobs:
       - name: Upload coverage reports to Codecov
         # inputs.ref is set only when track-c2pa-rs.yml calls this workflow.
         if: always() && inputs.ref == ''
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: contentauth/c2pa-android
@@ -120,7 +120,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -136,13 +136,13 @@ jobs:
         run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ steps.java.outputs.version }}
           distribution: "temurin"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Build AAR
         run: make library
@@ -152,7 +152,7 @@ jobs:
 
       - name: Upload lint results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lint-results
           path: |

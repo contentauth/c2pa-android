@@ -80,7 +80,7 @@ jobs:
       upstream_sha: ${{ steps.resolve.outputs.upstream_sha }}
       previous_target: ${{ steps.guard.outputs.previous_target }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -224,7 +224,7 @@ jobs:
     outputs:
       result: ${{ steps.outcome.outputs.result }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -233,13 +233,13 @@ jobs:
         run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: ${{ steps.java.outputs.version }}
           distribution: "temurin"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Build the Tracking Branch
         env:
@@ -342,7 +342,7 @@ jobs:
 
       - name: AVD cache
         if: steps.build_aar.outcome == 'success'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         id: avd-cache
         with:
           path: |
@@ -388,7 +388,7 @@ jobs:
         # Only on red: this workflow runs unattended several times a day per
         # branch, so the reports are only of interest when something broke.
         if: steps.build_aar.outcome == 'failure' || steps.build.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: TestResults-${{ needs.resolve.outputs.version }}-${{ github.run_id }}
           path: library/build/reports/androidTests/
@@ -402,7 +402,7 @@ jobs:
             steps.build_aar.outcome == 'failure' ||
             steps.build.outcome == 'failure'
           )
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: c2pa-archives-${{ needs.resolve.outputs.version }}-${{ github.run_id }}
           path: ${{ runner.temp }}/c2pa-archives
@@ -498,7 +498,7 @@ jobs:
       # from what this run resolved. Those are normally the same; asserting
       # it below is what stops a PR ever naming a version the branch does
       # not contain.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch }}
 
@@ -558,7 +558,7 @@ jobs:
       # Pinned to the exact main SHA the resolve job recorded (not whatever
       # origin/main is by the time this job runs) so the "previous version"
       # below always matches the main_sha reported alongside it.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.main_sha }}
 
@@ -721,7 +721,7 @@ jobs:
     env:
       ISSUE_TITLE: "C2PA tracking branch ${{ inputs.branch }} could not resolve a version"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Open or Update Tracking Issue
         env:
