@@ -1,3 +1,8 @@
+# JitPack reads this file as static YAML before the build starts, so the JDK
+# version cannot be read from gradle/libs.versions.toml the way the Gradle
+# modules and the CI workflows do. These literals are the only copies of the
+# Java version left in the repo; check-java-version-drift.sh fails the build
+# if they fall behind the `java` version in the catalog.
 jdk:
   - openjdk17
 

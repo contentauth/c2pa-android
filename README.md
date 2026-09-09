@@ -12,7 +12,7 @@ It offers:
 
 ##  Prerequisites
 
-- JDK 17 installed and `JAVA_HOME` set.
+- A JDK installed and `JAVA_HOME` set. The required version is the `java` entry in `gradle/libs.versions.toml`.
 - Android SDK installed with `ANDROID_HOME` environment variable set.
     - Android API level 28+ (Android 9.0+)
 - Android NDK installed (configure version in `local.properties` if needed).
