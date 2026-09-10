@@ -202,6 +202,8 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(builderTests.testBmffMerkleHashing())
     results.add(builderTests.testBuilderEmbeddableErrorPaths())
     results.add(builderTests.testContextProgressCallback())
+    results.add(builderTests.testUnicodeManifestRoundTrip())
+    results.add(builderTests.testEmbeddedNulRejected())
     results.add(builderTests.testClosedHandleValidation())
     results.add(builderTests.testContextCloseDuringSign())
     results.add(builderTests.testContextHttpResolver())

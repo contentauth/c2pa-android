@@ -938,6 +938,99 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testEmbeddedNulRejected(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Embedded NUL Rejected") {
+            // The JNI bridge hands the core NUL-terminated strings, so a Kotlin string
+            // containing U+0000 must be rejected at the boundary rather than silently
+            // truncated at the NUL.
+            var thrown: Throwable? = null
+            Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                try {
+                    builder.setRemoteURL("https://example.com/manifest\u0000.c2pa")
+                } catch (e: Throwable) {
+                    thrown = e
+                }
+            }
+
+            val success = thrown is IllegalArgumentException
+            TestResult(
+                "Embedded NUL Rejected",
+                success,
+                if (success) {
+                    "String containing U+0000 rejected with IllegalArgumentException"
+                } else {
+                    "Expected IllegalArgumentException, got: $thrown"
+                },
+                "Thrown: $thrown",
+            )
+        }
+    }
+
+    suspend fun testUnicodeManifestRoundTrip(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Unicode Manifest Round Trip") {
+            try {
+                // Supplementary-plane characters cross the JNI string bridge in both
+                // directions: into the manifest definition at sign time and back out of
+                // the manifest JSON at read time.
+                val title = "Unicode 🌍🎥 déjà vu ✓"
+                val manifestJson = """{
+                    "claim_generator": "test_app/1.0",
+                    "title": ${JSONObject.quote(title)},
+                    "assertions": [
+                        {
+                            "label": "c2pa.actions",
+                            "data": {
+                                "actions": [
+                                    {
+                                        "action": "c2pa.created",
+                                        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }"""
+
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                val signedData = Builder.fromJson(manifestJson).use { builder ->
+                    ByteArrayStream(sourceImageData).use { source ->
+                        ByteArrayStream().use { dest ->
+                            Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                builder.sign("image/jpeg", source, dest, signer)
+                            }
+                            dest.getData()
+                        }
+                    }
+                }
+
+                val readTitle = ByteArrayStream(signedData).use { stream ->
+                    Reader.fromStream("image/jpeg", stream).use { reader ->
+                        val json = JSONObject(reader.json())
+                        val active = json.optString("active_manifest")
+                        json.getJSONObject("manifests").getJSONObject(active).optString("title")
+                    }
+                }
+
+                val success = readTitle == title
+                TestResult(
+                    "Unicode Manifest Round Trip",
+                    success,
+                    if (success) {
+                        "Supplementary-plane title round-tripped intact"
+                    } else {
+                        "Title mangled in round trip"
+                    },
+                    "Expected: $title\nActual: $readTitle",
+                )
+            } catch (e: Exception) {
+                TestResult("Unicode Manifest Round Trip", false, "Unicode round-trip flow threw", e.toString())
+            }
+        }
+    }
+
     suspend fun testClosedHandleValidation(): TestResult = withContext(Dispatchers.IO) {
         runTest("Closed Handle Validation") {
             // Calls on closed handles must be rejected with a typed exception at the
