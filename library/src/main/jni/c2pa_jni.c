@@ -103,26 +103,33 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
         return JNI_ERR;
     }
     
-    // Cache frequently used classes and methods
+    // Cache frequently used classes and methods. A failed lookup must not leave
+    // its exception pending when JNI_OnLoad returns.
     jclass localStreamClass = (*env)->FindClass(env, "org/contentauth/c2pa/Stream");
     if (localStreamClass != NULL) {
         g_streamClass = (*env)->NewGlobalRef(env, localStreamClass);
         (*env)->DeleteLocalRef(env, localStreamClass);
-        
+
         g_streamReadMethod = (*env)->GetMethodID(env, g_streamClass, "read", "([BJ)J");
         g_streamSeekMethod = (*env)->GetMethodID(env, g_streamClass, "seek", "(JI)J");
         g_streamWriteMethod = (*env)->GetMethodID(env, g_streamClass, "write", "([BJ)J");
         g_streamFlushMethod = (*env)->GetMethodID(env, g_streamClass, "flush", "()J");
     }
-    
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+
     // SignerInfo class is no longer needed - parameters are passed directly
-    
+
     jclass localSignResultClass = (*env)->FindClass(env, "org/contentauth/c2pa/Builder$SignResult");
     if (localSignResultClass != NULL) {
         g_signResultClass = (*env)->NewGlobalRef(env, localSignResultClass);
         (*env)->DeleteLocalRef(env, localSignResultClass);
     }
-    
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+    }
+
     return JNI_VERSION_1_6;
 }
 
@@ -189,6 +196,19 @@ static int check_exception(JNIEnv *env) {
         return 1;
     }
     return 0;
+}
+
+// Throws className with message. FindClass can fail (returning NULL with its own
+// exception pending), and ThrowNew with a NULL class is undefined behavior, so
+// the class is checked first; on failure the FindClass exception is left pending
+// instead.
+static void throw_checked(JNIEnv *env, const char *className, const char *message) {
+    jclass cls = (*env)->FindClass(env, className);
+    if (cls == NULL) {
+        return;
+    }
+    (*env)->ThrowNew(env, cls, message);
+    (*env)->DeleteLocalRef(env, cls);
 }
 
 // Helper function to convert jstring to C string with null checking
@@ -352,24 +372,10 @@ static int finish_stashed_exception(JNIEnv *env, int failed) {
     return 0;
 }
 
-// Helper to throw an exception with proper error message from C2PA. Does not
-// consult the callback stash; boundaries that run callbacks rethrow it first via
-// finish_stashed_exception.
-static void throw_c2pa_exception(JNIEnv *env, const char *defaultMessage) {
-    char *error = c2pa_error();
-    if (error != NULL && strlen(error) > 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), error);
-        c2pa_free(error);
-    } else {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), defaultMessage);
-    }
-}
-
 // Helper for safe array allocation with error handling
 static jbyteArray safe_new_byte_array(JNIEnv *env, jsize size) {
     if (size < 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Array size cannot be negative");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Array size cannot be negative");
         return NULL;
     }
     
@@ -378,6 +384,17 @@ static jbyteArray safe_new_byte_array(JNIEnv *env, jsize size) {
         check_exception(env);
     }
     return array;
+}
+
+// Allocates a byte array for an int64 FFI size. jsize is 32-bit, so sizes that
+// do not fit a Java array are rejected instead of silently truncated.
+static jbyteArray new_byte_array_for_size(JNIEnv *env, int64_t size) {
+    if (size < 0 || size > INT32_MAX) {
+        throw_checked(env, "java/lang/IllegalArgumentException",
+                      "Native buffer size exceeds Java array limit");
+        return NULL;
+    }
+    return safe_new_byte_array(env, (jsize)size);
 }
 
 // Stream callbacks. Java exceptions are stashed rather than left pending, since
@@ -775,14 +792,24 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_C2PA_getError(JNIEnv *env, j
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PA_loadSettingsNative(JNIEnv *env, jclass clazz, jstring settings, jstring format) {
+    if (settings == NULL || format == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Settings and format cannot be null");
+        return -1;
+    }
+
     const char *csettings = jstring_to_cstring(env, settings);
     const char *cformat = jstring_to_cstring(env, format);
-    
+    if (csettings == NULL || cformat == NULL) {
+        release_cstring(env, settings, csettings);
+        release_cstring(env, format, cformat);
+        return -1;
+    }
+
     int result = c2pa_load_settings(csettings, cformat);
-    
+
     release_cstring(env, settings, csettings);
     release_cstring(env, format, cformat);
-    
+
     return result;
 }
 
@@ -790,8 +817,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PA_loadSettingsNative(JNIEnv 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIEnv *env, jobject obj) {
     JavaStreamContext *ctx = (JavaStreamContext*)calloc(1, sizeof(JavaStreamContext));
     if (ctx == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"), 
-                         "Failed to allocate stream context");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate stream context");
         return 0;
     }
     
@@ -799,8 +825,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIE
     if (ctx->streamObject == NULL) {
         free(ctx);
         check_exception(env);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"), 
-                         "Failed to create global reference");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to create global reference");
         return 0;
     }
     
@@ -809,8 +834,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIE
         g_streamWriteMethod == NULL || g_streamFlushMethod == NULL) {
         (*env)->DeleteGlobalRef(env, ctx->streamObject);
         free(ctx);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Stream method IDs not cached");
+        throw_checked(env, "java/lang/IllegalStateException", "Stream method IDs not cached");
         return 0;
     }
     
@@ -825,8 +849,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIE
     if (stream == NULL) {
         (*env)->DeleteGlobalRef(env, ctx->streamObject);
         free(ctx);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/RuntimeException"), 
-                         "Failed to create C2PA stream");
+        throw_checked(env, "java/lang/RuntimeException", "Failed to create C2PA stream");
         return 0;
     }
     
@@ -853,8 +876,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Stream_releaseStreamNative(JNIE
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv *env, jclass clazz, jstring format, jlong streamPtr) {
     clear_stashed_exception(env);
     if (format == NULL || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Format and stream cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format and stream cannot be null");
         return 0;
     }
     
@@ -880,11 +902,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv
 
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, reader == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, reader == NULL);
     if (reader == NULL) {
-        throw_c2pa_exception(env, "Failed to create reader from stream");
         return 0;
     }
 
@@ -894,8 +913,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromStreamNative(JNIEnv
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromManifestDataAndStreamNative(JNIEnv *env, jclass clazz, jstring format, jlong streamPtr, jbyteArray manifestData) {
     clear_stashed_exception(env);
     if (format == NULL || streamPtr == 0 || manifestData == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Format, stream, and manifest data cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format, stream, and manifest data cannot be null");
         return 0;
     }
     
@@ -914,8 +932,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_fromManifestDataAndStre
     
     if (dataSize <= 0) {
         release_cstring(env, format, cformat);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Manifest data cannot be empty");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Manifest data cannot be empty");
         return 0;
     }
     
@@ -958,8 +975,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Reader_free(JNIEnv *env, jobjec
 
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toJsonNative(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Reader is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
         return NULL;
     }
     
@@ -967,7 +983,6 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toJsonNative(JNIEnv *
     char *json = c2pa_reader_json(reader);
     
     if (json == NULL) {
-        throw_c2pa_exception(env, "Failed to generate JSON from reader");
         return NULL;
     }
     
@@ -978,8 +993,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toJsonNative(JNIEnv *
 
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Reader is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
         return NULL;
     }
     
@@ -987,7 +1001,6 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(
     char *json = c2pa_reader_detailed_json(reader);
     
     if (json == NULL) {
-        throw_c2pa_exception(env, "Failed to generate detailed JSON from reader");
         return NULL;
     }
     
@@ -998,8 +1011,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_toDetailedJsonNative(
 
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_crjsonNative(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"),
-                         "Reader is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
         return NULL;
     }
 
@@ -1007,7 +1019,6 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_crjsonNative(JNIEnv *
     char *json = c2pa_reader_crjson(reader);
 
     if (json == NULL) {
-        throw_c2pa_exception(env, "Failed to generate crJSON from reader");
         return NULL;
     }
 
@@ -1018,8 +1029,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_crjsonNative(JNIEnv *
 
 JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_remoteUrlNative(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Reader is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
         return NULL;
     }
     
@@ -1037,8 +1047,7 @@ JNIEXPORT jstring JNICALL Java_org_contentauth_c2pa_Reader_remoteUrlNative(JNIEn
 
 JNIEXPORT jboolean JNICALL Java_org_contentauth_c2pa_Reader_isEmbeddedNative(JNIEnv *env, jobject obj, jlong readerPtr) {
     if (readerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Reader is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
         return JNI_FALSE;
     }
     
@@ -1048,9 +1057,12 @@ JNIEXPORT jboolean JNICALL Java_org_contentauth_c2pa_Reader_isEmbeddedNative(JNI
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring uri, jlong streamPtr) {
     clear_stashed_exception(env);
-    if (readerPtr == 0 || uri == NULL || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Reader, URI, and stream cannot be null");
+    if (readerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
+        return -1;
+    }
+    if (uri == NULL || streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "URI and stream cannot be null");
         return -1;
     }
     
@@ -1069,7 +1081,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_resourceToStreamNative(
     if (finish_stashed_exception(env, result < 0)) {
         return -1;
     }
-    return (jlong)(uintptr_t)result;
+    return (jlong)result;
 }
 
 JNIEXPORT jobjectArray JNICALL Java_org_contentauth_c2pa_Reader_supportedMimeTypesNative(JNIEnv *env, jclass clazz) {
@@ -1098,8 +1110,7 @@ JNIEXPORT jobjectArray JNICALL Java_org_contentauth_c2pa_Builder_supportedMimeTy
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIEnv *env, jclass clazz, jlong streamPtr) {
     clear_stashed_exception(env);
     if (streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Stream cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Stream cannot be null");
         return 0;
     }
     
@@ -1118,11 +1129,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromArchive(JNIE
         c2pa_free(ctx);
     }
 
-    if (finish_stashed_exception(env, builder == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, builder == NULL);
     if (builder == NULL) {
-        throw_c2pa_exception(env, "Failed to create builder from archive");
         return 0;
     }
 
@@ -1137,8 +1145,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Builder_free(JNIEnv *env, jobje
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setIntentNative(JNIEnv *env, jobject obj, jlong builderPtr, jint intent, jint digitalSourceType) {
     if (builderPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Builder is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
         return -1;
     }
     
@@ -1147,9 +1154,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setIntentNative(JNIEnv 
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addActionNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring actionJson) {
-    if (builderPtr == 0 || actionJson == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Builder and action JSON cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (actionJson == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Action JSON cannot be null");
         return -1;
     }
     
@@ -1165,8 +1175,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addActionNative(JNIEnv 
 
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Builder_setNoEmbedNative(JNIEnv *env, jobject obj, jlong builderPtr) {
     if (builderPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalStateException"), 
-                         "Builder is not initialized");
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
         return;
     }
     
@@ -1174,9 +1183,12 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Builder_setNoEmbedNative(JNIEnv
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setRemoteUrlNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring remoteUrl) {
-    if (builderPtr == 0 || remoteUrl == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Builder and remote URL cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (remoteUrl == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Remote URL cannot be null");
         return -1;
     }
     
@@ -1191,9 +1203,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setRemoteUrlNative(JNIE
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setBasePathNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring basePath) {
-    if (builderPtr == 0 || basePath == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and base path cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (basePath == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Base path cannot be null");
         return -1;
     }
 
@@ -1209,7 +1224,20 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setBasePathNative(JNIEn
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addResourceNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring uri, jlong streamPtr) {
     clear_stashed_exception(env);
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (uri == NULL || streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "URI and stream cannot be null");
+        return -1;
+    }
+
     const char *curi = jstring_to_cstring(env, uri);
+    if (curi == NULL) {
+        return -1;
+    }
+
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     int result = c2pa_builder_add_resource((struct C2paBuilder*)(uintptr_t)builderPtr, curi, stream);
     release_cstring(env, uri, curi);
@@ -1219,14 +1247,29 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addResourceNative(JNIEn
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromStreamNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring ingredientJson, jstring format, jlong streamPtr) {
     clear_stashed_exception(env);
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (ingredientJson == NULL || format == NULL || streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Ingredient JSON, format, and stream cannot be null");
+        return -1;
+    }
+
     const char *cingredientJson = jstring_to_cstring(env, ingredientJson);
     const char *cformat = jstring_to_cstring(env, format);
+    if (cingredientJson == NULL || cformat == NULL) {
+        release_cstring(env, ingredientJson, cingredientJson);
+        release_cstring(env, format, cformat);
+        return -1;
+    }
+
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
-    
+
     int result = c2pa_builder_add_ingredient_from_stream(
         (struct C2paBuilder*)(uintptr_t)builderPtr, cingredientJson, cformat, stream
     );
-    
+
     release_cstring(env, ingredientJson, cingredientJson);
     release_cstring(env, format, cformat);
 
@@ -1236,6 +1279,15 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromStream
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_toArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
     clear_stashed_exception(env);
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Stream cannot be null");
+        return -1;
+    }
+
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
     int result = c2pa_builder_to_archive(builder, stream);
@@ -1245,9 +1297,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_toArchiveNative(JNIEnv 
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and stream cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Stream cannot be null");
         return -1;
     }
 
@@ -1260,9 +1315,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_addIngredientFromArchiv
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_writeIngredientArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring ingredientId, jlong streamPtr) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || ingredientId == NULL || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder, ingredient id, and stream cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (ingredientId == NULL || streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Ingredient id and stream cannot be null");
         return -1;
     }
 
@@ -1306,13 +1364,13 @@ static jobject build_sign_result(JNIEnv *env, int64_t size, const unsigned char 
 
     jbyteArray jmanifestBytes = NULL;
     if (manifestBytes != NULL && size > 0) {
-        jmanifestBytes = safe_new_byte_array(env, size);
+        jmanifestBytes = new_byte_array_for_size(env, size);
         if (jmanifestBytes == NULL) {
             c2pa_free(manifestBytes);
             return NULL;
         }
 
-        (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, size, (const jbyte*)manifestBytes);
+        (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, (jsize)size, (const jbyte*)manifestBytes);
         if (check_exception(env)) {
             c2pa_free(manifestBytes);
             return NULL;
@@ -1332,9 +1390,12 @@ static jobject build_sign_result(JNIEnv *env, int64_t size, const unsigned char 
 
 JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr, jlong signerPtr) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0 || signerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Builder, format, streams, and signer cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
+    if (format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0 || signerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format, streams, and signer cannot be null");
         return NULL;
     }
     
@@ -1366,9 +1427,12 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
 
 JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder, format, and streams cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
+    if (format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format and streams cannot be null");
         return NULL;
     }
 
@@ -1400,12 +1464,20 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNativ
 
 // New Builder methods
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceholderNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong reservedSize, jstring format) {
-    if (builderPtr == 0 || format == NULL || reservedSize <= 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Builder, format cannot be null and reserved size must be positive");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
+    if (format == NULL || reservedSize <= 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format cannot be null and reserved size must be positive");
         return NULL;
     }
     
+    if ((uint64_t)reservedSize != (uint64_t)(uintptr_t)reservedSize) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Reserved size out of range");
+        return NULL;
+    }
+
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     const char *cformat = jstring_to_cstring(env, format);
     if (cformat == NULL) {
@@ -1418,17 +1490,16 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
     release_cstring(env, format, cformat);
     
     if (size < 0 || manifestBytes == NULL) {
-        throw_c2pa_exception(env, "Failed to create data hashed placeholder");
         return NULL;
     }
     
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
     }
     
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1440,30 +1511,47 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceho
 
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmbeddableNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr, jstring dataHash, jstring format, jlong assetPtr) {
     clear_stashed_exception(env);
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
+    if (signerPtr == 0 || dataHash == NULL || format == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Signer, data hash, and format cannot be null");
+        return NULL;
+    }
+
     struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
     struct C2paSigner *signer = (struct C2paSigner*)(uintptr_t)signerPtr;
     const char *cdataHash = jstring_to_cstring(env, dataHash);
     const char *cformat = jstring_to_cstring(env, format);
+    if (cdataHash == NULL || cformat == NULL) {
+        release_cstring(env, dataHash, cdataHash);
+        release_cstring(env, format, cformat);
+        return NULL;
+    }
+
     struct C2paStream *asset = assetPtr != 0 ? (struct C2paStream*)(uintptr_t)assetPtr : NULL;
     const unsigned char *manifestBytes = NULL;
-    
+
     int64_t size = c2pa_builder_sign_data_hashed_embeddable(builder, signer, cdataHash, cformat, asset, &manifestBytes);
-    
+
     release_cstring(env, dataHash, cdataHash);
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, size < 0 || manifestBytes == NULL)) {
+    finish_stashed_exception(env, size < 0 || manifestBytes == NULL);
+    if (size < 0 || manifestBytes == NULL) {
         if (manifestBytes != NULL) {
             c2pa_free(manifestBytes);
         }
         return NULL;
     }
-    if (size < 0 || manifestBytes == NULL) {
+
+    jbyteArray result = new_byte_array_for_size(env, size);
+    if (result == NULL) {
+        c2pa_free(manifestBytes);
         return NULL;
     }
-
-    jbyteArray result = (*env)->NewByteArray(env, size);
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     c2pa_free(manifestBytes);
 
     return result;
@@ -1471,9 +1559,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmb
 
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || format == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and format cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
+    if (format == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format cannot be null");
         return NULL;
     }
 
@@ -1497,12 +1588,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNat
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
     }
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1512,9 +1603,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNat
 }
 
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_placeholderNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format) {
-    if (builderPtr == 0 || format == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and format cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
+    if (format == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format cannot be null");
         return NULL;
     }
 
@@ -1532,12 +1626,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_placeholderNative
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(manifestBytes);
         return NULL;
     }
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)manifestBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
     if (check_exception(env)) {
         c2pa_free(manifestBytes);
         return NULL;
@@ -1547,9 +1641,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_placeholderNative
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_needsPlaceholderNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format) {
-    if (builderPtr == 0 || format == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and format cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (format == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format cannot be null");
         return -1;
     }
 
@@ -1564,16 +1661,18 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_needsPlaceholderNative(
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setDataHashExclusionsNative(JNIEnv *env, jobject obj, jlong builderPtr, jlongArray exclusions) {
-    if (builderPtr == 0 || exclusions == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and exclusions cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (exclusions == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Exclusions cannot be null");
         return -1;
     }
 
     jsize len = (*env)->GetArrayLength(env, exclusions);
     if (len % 2 != 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Exclusions must be a flat array of (start, length) pairs");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Exclusions must be a flat array of (start, length) pairs");
         return -1;
     }
 
@@ -1596,8 +1695,7 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setDataHashExclusionsNa
 
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_formatEmbeddableNative(JNIEnv *env, jclass clazz, jstring format, jbyteArray manifestData) {
     if (format == NULL || manifestData == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Format and manifest data cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format and manifest data cannot be null");
         return NULL;
     }
 
@@ -1624,12 +1722,12 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_formatEmbeddableN
         return NULL;
     }
 
-    jbyteArray result = safe_new_byte_array(env, size);
+    jbyteArray result = new_byte_array_for_size(env, size);
     if (result == NULL) {
         c2pa_free(resultBytes);
         return NULL;
     }
-    (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte*)resultBytes);
+    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)resultBytes);
     if (check_exception(env)) {
         c2pa_free(resultBytes);
         return NULL;
@@ -1640,21 +1738,32 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_formatEmbeddableN
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setFixedSizeMerkleNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong fixedSizeKb) {
     if (builderPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder cannot be null");
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (fixedSizeKb < 0 || (uint64_t)fixedSizeKb != (uint64_t)(uintptr_t)fixedSizeKb) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Fixed chunk size out of range");
         return -1;
     }
     return c2pa_builder_set_fixed_size_merkle((struct C2paBuilder*)(uintptr_t)builderPtr, (uintptr_t)fixedSizeKb);
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_hashMdatBytesNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong mdatId, jbyteArray data, jboolean largeSize) {
-    if (builderPtr == 0 || data == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and data cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (data == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Data cannot be null");
         return -1;
     }
 
     jsize dataLen = (*env)->GetArrayLength(env, data);
+    if (mdatId < 0 || (uint64_t)mdatId != (uint64_t)(uintptr_t)mdatId) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "mdat id out of range");
+        return -1;
+    }
+
     jbyte *dataPtr = (*env)->GetByteArrayElements(env, data, NULL);
     if (dataPtr == NULL) {
         check_exception(env);
@@ -1675,9 +1784,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_hashMdatBytesNative(JNI
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_updateHashFromStreamNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong streamPtr) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || format == NULL || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder, format, and stream cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (format == NULL || streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format and stream cannot be null");
         return -1;
     }
 
@@ -1698,9 +1810,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_updateHashFromStreamNat
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_hashTypeNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format) {
-    if (builderPtr == 0 || format == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and format cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (format == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format cannot be null");
         return -1;
     }
 
@@ -1732,8 +1847,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromSettings(JNIE
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromInfo(JNIEnv *env, jclass clazz, jstring algorithm, jstring certificatePEM, jstring privateKeyPEM, jstring tsaURL) {
     if (algorithm == NULL || certificatePEM == NULL || privateKeyPEM == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Required parameters cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Required parameters cannot be null");
         return 0;
     }
     
@@ -1747,8 +1861,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromInfo(JNIEnv *
         release_cstring(env, certificatePEM, ccertificatePEM);
         release_cstring(env, privateKeyPEM, cprivateKeyPEM);
         release_cstring(env, tsaURL, ctsaURL);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Required signer info fields cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Required signer info fields cannot be null");
         return 0;
     }
     
@@ -1885,8 +1998,7 @@ static void free_detached_contexts(JNIEnv *env, SignerContextNode *nodes) {
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIEnv *env, jclass clazz, jstring algorithm, jstring certificateChain, jstring tsaURL, jobject callback) {
     if (algorithm == NULL || certificateChain == NULL || callback == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Required parameters cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Required parameters cannot be null");
         return 0;
     }
     
@@ -1904,8 +2016,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIE
     else if (strcmp(calg, "ed25519") == 0) alg = Ed25519;
     else {
         release_cstring(env, algorithm, calg);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Unknown signing algorithm");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Unknown signing algorithm");
         return 0;
     }
     
@@ -1924,8 +2035,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromCallback(JNIE
     if (ctx == NULL) {
         release_cstring(env, certificateChain, ccerts);
         release_cstring(env, tsaURL, ctsaURL);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"), 
-                         "Failed to allocate signer context");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate signer context");
         return 0;
     }
     
@@ -2001,18 +2111,14 @@ static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***o
     }
     const char **arr = (const char **)calloc((size_t)len + 1, sizeof(const char *));
     if (arr == NULL) {
-        (*env)->ThrowNew(env,
-                         (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
-                         "Failed to allocate string array");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate string array");
         return -1;
     }
     for (jsize i = 0; i < len; i++) {
         jstring js = (jstring)(*env)->GetObjectArrayElement(env, jarray, i);
         if (js == NULL) {
             release_cstring_array(arr, len);
-            (*env)->ThrowNew(env,
-                             (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                             "Array element cannot be null");
+            throw_checked(env, "java/lang/IllegalArgumentException", "Array element cannot be null");
             return -1;
         }
         const char *cs = jstring_to_cstring(env, js);
@@ -2021,9 +2127,7 @@ static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***o
         (*env)->DeleteLocalRef(env, js);
         if (copy == NULL) {
             release_cstring_array(arr, len);
-            (*env)->ThrowNew(env,
-                             (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
-                             "Failed to copy array element");
+            throw_checked(env, "java/lang/OutOfMemoryError", "Failed to copy array element");
             return -1;
         }
         arr[i] = copy;
@@ -2035,17 +2139,13 @@ static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***o
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeCombineCawg(JNIEnv *env, jclass clazz, jlong c2paHandle, jlong identityHandle, jobjectArray referencedAssertions, jobjectArray roles) {
     if (c2paHandle == 0 || identityHandle == 0) {
-        (*env)->ThrowNew(env,
-                         (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Signer handles cannot be zero");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Signer handles cannot be zero");
         return 0;
     }
     if (c2paHandle == identityHandle) {
         // The FFI consumes each input; aliasing the same signer would untrack it
         // without freeing, leaking it irrecoverably.
-        (*env)->ThrowNew(env,
-                         (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "c2pa and identity signers must be distinct");
+        throw_checked(env, "java/lang/IllegalArgumentException", "c2pa and identity signers must be distinct");
         return 0;
     }
 
@@ -2088,6 +2188,10 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeCombineCawg(JNIEn
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_reserveSizeNative(JNIEnv *env, jobject obj, jlong signerPtr) {
+    if (signerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Signer is closed");
+        return -1;
+    }
     return c2pa_signer_reserve_size((struct C2paSigner*)(uintptr_t)signerPtr);
 }
 
@@ -2206,8 +2310,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_free(JNIEnv *env, j
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContext_cancelNative(JNIEnv *env, jobject obj, jlong contextPtr) {
     if (contextPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Context cannot be null");
+        throw_checked(env, "java/lang/IllegalStateException", "C2PAContext is closed");
         return -1;
     }
     return c2pa_context_cancel((struct C2paContext*)(uintptr_t)contextPtr);
@@ -2232,9 +2335,12 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_nativeNew(J
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSettingsNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong settingsPtr) {
-    if (builderPtr == 0 || settingsPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and settings cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "C2PAContextBuilder is closed");
+        return -1;
+    }
+    if (settingsPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Builder and settings cannot be null");
         return -1;
     }
     return c2pa_context_builder_set_settings(
@@ -2244,9 +2350,12 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSettingsN
 }
 
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr) {
-    if (builderPtr == 0 || signerPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and signer cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "C2PAContextBuilder is closed");
+        return -1;
+    }
+    if (signerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Builder and signer cannot be null");
         return -1;
     }
     // The FFI consumes the signer; the Kotlin wrapper zeros its pointer on success.
@@ -2257,16 +2366,18 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNat
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgressCallbackNative(JNIEnv *env, jobject obj, jlong builderPtr, jobject bridge) {
-    if (builderPtr == 0 || bridge == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and progress callback cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "C2PAContextBuilder is closed");
+        return 0;
+    }
+    if (bridge == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Builder and progress callback cannot be null");
         return 0;
     }
 
     JavaContextCallback *jctx = (JavaContextCallback*)calloc(1, sizeof(JavaContextCallback));
     if (jctx == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
-                         "Failed to allocate progress callback context");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate progress callback context");
         return 0;
     }
 
@@ -2292,8 +2403,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
     if (!register_context_callback(jctx)) {
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
-                         "Failed to register progress callback");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to register progress callback");
         return 0;
     }
 
@@ -2307,7 +2417,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        throw_c2pa_exception(env, "Failed to set progress callback");
         return 0;
     }
 
@@ -2316,16 +2425,18 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpResolverNative(JNIEnv *env, jobject obj, jlong builderPtr, jobject bridge) {
-    if (builderPtr == 0 || bridge == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and HTTP resolver cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "C2PAContextBuilder is closed");
+        return 0;
+    }
+    if (bridge == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Builder and HTTP resolver cannot be null");
         return 0;
     }
 
     JavaContextCallback *jctx = (JavaContextCallback*)calloc(1, sizeof(JavaContextCallback));
     if (jctx == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
-                         "Failed to allocate HTTP resolver context");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate HTTP resolver context");
         return 0;
     }
 
@@ -2352,8 +2463,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
     if (!register_context_callback(jctx)) {
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/OutOfMemoryError"),
-                         "Failed to register HTTP resolver");
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to register HTTP resolver");
         return 0;
     }
 
@@ -2363,7 +2473,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        throw_c2pa_exception(env, "Failed to create HTTP resolver");
         return 0;
     }
 
@@ -2374,7 +2483,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         unregister_context_callback(jctx);
         (*env)->DeleteGlobalRef(env, jctx->callback);
         free(jctx);
-        throw_c2pa_exception(env, "Failed to set HTTP resolver");
         return 0;
     }
 
@@ -2400,8 +2508,7 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_free(JNIEnv 
 // Builder context-based methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromContext(JNIEnv *env, jclass clazz, jlong contextPtr) {
     if (contextPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Context cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Context cannot be null");
         return 0;
     }
 
@@ -2409,7 +2516,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromContext(JNIE
     struct C2paBuilder *builder = c2pa_builder_from_context(context);
 
     if (builder == NULL) {
-        throw_c2pa_exception(env, "Failed to create builder from context");
         return 0;
     }
 
@@ -2417,9 +2523,12 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_nativeFromContext(JNIE
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withDefinitionNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring manifestJson) {
-    if (builderPtr == 0 || manifestJson == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and manifest JSON cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return 0;
+    }
+    if (manifestJson == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Manifest JSON cannot be null");
         return 0;
     }
 
@@ -2434,7 +2543,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withDefinitionNative(J
     release_cstring(env, manifestJson, cmanifestJson);
 
     if (newBuilder == NULL) {
-        throw_c2pa_exception(env, "Failed to set builder definition");
         return 0;
     }
 
@@ -2443,9 +2551,12 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withDefinitionNative(J
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong streamPtr) {
     clear_stashed_exception(env);
-    if (builderPtr == 0 || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Builder and stream cannot be null");
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return 0;
+    }
+    if (streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Stream cannot be null");
         return 0;
     }
 
@@ -2455,11 +2566,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIE
     // This consumes the old builder pointer
     struct C2paBuilder *newBuilder = c2pa_builder_with_archive(builder, stream);
 
-    if (finish_stashed_exception(env, newBuilder == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, newBuilder == NULL);
     if (newBuilder == NULL) {
-        throw_c2pa_exception(env, "Failed to set builder archive");
         return 0;
     }
 
@@ -2469,8 +2577,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Builder_withArchiveNative(JNIE
 // Reader context-based methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_nativeFromContext(JNIEnv *env, jclass clazz, jlong contextPtr) {
     if (contextPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Context cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Context cannot be null");
         return 0;
     }
 
@@ -2478,7 +2585,6 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_nativeFromContext(JNIEn
     struct C2paReader *reader = c2pa_reader_from_context(context);
 
     if (reader == NULL) {
-        throw_c2pa_exception(env, "Failed to create reader from context");
         return 0;
     }
 
@@ -2487,9 +2593,12 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_nativeFromContext(JNIEn
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring format, jlong streamPtr) {
     clear_stashed_exception(env);
-    if (readerPtr == 0 || format == NULL || streamPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Reader, format, and stream cannot be null");
+    if (readerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
+        return 0;
+    }
+    if (format == NULL || streamPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format and stream cannot be null");
         return 0;
     }
 
@@ -2505,11 +2614,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv
     struct C2paReader *newReader = c2pa_reader_with_stream(reader, cformat, stream);
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, newReader == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, newReader == NULL);
     if (newReader == NULL) {
-        throw_c2pa_exception(env, "Failed to configure reader with stream");
         return 0;
     }
 
@@ -2518,9 +2624,12 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withStreamNative(JNIEnv
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIEnv *env, jobject obj, jlong readerPtr, jstring format, jlong streamPtr, jlong fragmentPtr) {
     clear_stashed_exception(env);
-    if (readerPtr == 0 || format == NULL || streamPtr == 0 || fragmentPtr == 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
-                         "Reader, format, stream, and fragment cannot be null");
+    if (readerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Reader is closed");
+        return 0;
+    }
+    if (format == NULL || streamPtr == 0 || fragmentPtr == 0) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Format, stream, and fragment cannot be null");
         return 0;
     }
 
@@ -2537,11 +2646,8 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIE
     struct C2paReader *newReader = c2pa_reader_with_fragment(reader, cformat, stream, fragment);
     release_cstring(env, format, cformat);
 
-    if (finish_stashed_exception(env, newReader == NULL)) {
-        return 0;
-    }
+    finish_stashed_exception(env, newReader == NULL);
     if (newReader == NULL) {
-        throw_c2pa_exception(env, "Failed to configure reader with fragment");
         return 0;
     }
 
@@ -2551,15 +2657,13 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Reader_withFragmentNative(JNIE
 // Ed25519 signing
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_C2PA_ed25519SignNative(JNIEnv *env, jclass clazz, jbyteArray data, jstring privateKey) {
     if (data == NULL || privateKey == NULL) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Data and private key cannot be null");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Data and private key cannot be null");
         return NULL;
     }
     
     jsize dataSize = (*env)->GetArrayLength(env, data);
     if (check_exception(env) || dataSize <= 0) {
-        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
-                         "Data cannot be empty");
+        throw_checked(env, "java/lang/IllegalArgumentException", "Data cannot be empty");
         return NULL;
     }
     

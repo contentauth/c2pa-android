@@ -26,6 +26,14 @@ jobs:
         api-level: [33, 35]
         target: [google_apis]
         arch: [x86_64]
+        include:
+          # 32-bit ABI run at the library's minSdk. The JNI bridge ships
+          # armeabi-v7a and x86 and has pointer-width-dependent code (int64
+          # results, usize parameters), and no other job runs at the minimum
+          # supported level. 32-bit x86 google_apis images exist for 28-30.
+          - api-level: 28
+            target: google_apis
+            arch: x86
 
     steps:
       - name: Checkout
@@ -95,14 +103,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results-${{ matrix.api-level }}
+          name: test-results-${{ matrix.api-level }}-${{ matrix.arch }}
           path: library/build/reports/androidTests/
 
       - name: Upload coverage reports to GitHub
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-reports-${{ matrix.api-level }}
+          name: coverage-reports-${{ matrix.api-level }}-${{ matrix.arch }}
           path: |
             library/build/reports/jacoco/jacocoInstrumentedTestReport/
             library/build/reports/coverage/androidTest/debug/connected/

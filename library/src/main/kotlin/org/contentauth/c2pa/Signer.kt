@@ -19,7 +19,11 @@ interface SignCallback {
     fun sign(data: ByteArray): ByteArray
 }
 
-/** C2PA Signer for signing manifests */
+/**
+ * C2PA Signer for signing manifests.
+ *
+ * Signer implements [Closeable]; calling a method after `close()` throws [IllegalStateException].
+ */
 class Signer internal constructor(internal var ptr: Long) : Closeable {
 
     companion object {
