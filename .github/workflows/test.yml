@@ -33,10 +33,14 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up JDK 17
+      - name: Resolve JDK version
+        id: java
+        run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: ${{ steps.java.outputs.version }}
           distribution: "temurin"
 
       - name: Setup Android SDK
@@ -124,10 +128,17 @@ jobs:
       - name: Check C2PA target lists agree
         run: .github/scripts/check-target-drift.sh
 
-      - name: Set up JDK 17
+      - name: Check the JitPack JDK matches the catalog
+        run: .github/scripts/check-java-version-drift.sh
+
+      - name: Resolve JDK version
+        id: java
+        run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: ${{ steps.java.outputs.version }}
           distribution: "temurin"
 
       - name: Setup Android SDK

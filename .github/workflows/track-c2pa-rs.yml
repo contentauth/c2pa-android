@@ -228,10 +228,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Resolve JDK version
+        id: java
+        run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: ${{ steps.java.outputs.version }}
           distribution: "temurin"
 
       - name: Setup Android SDK

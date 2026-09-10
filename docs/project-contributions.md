@@ -12,12 +12,13 @@ The information in this page is primarily for those who wish to contribute to th
    ```
 
 2. Set up the required dependencies:
-   - Set up JDK 17
+   - Set up a JDK matching the `java` entry in `gradle/libs.versions.toml`
    - Set up Android SDK
    - Set up environment variables (add to your shell profile):
 
      ```bash
-     export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+     # <version> is the `java` entry in gradle/libs.versions.toml
+     export JAVA_HOME=$(/usr/libexec/java_home -v <version>)
      export ANDROID_HOME=$HOME/Library/Android/sdk
      ```
 

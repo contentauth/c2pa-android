@@ -50,11 +50,15 @@ jobs:
         echo "2. Build the Android AAR"
         echo "3. Create a GitHub release with artifacts"
 
-    - name: Set up JDK 17
+    - name: Resolve JDK version
+      id: java
+      run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
+
+    - name: Set up JDK
       id: setup-java
       uses: actions/setup-java@v3
       with:
-        java-version: "17"
+        java-version: ${{ steps.java.outputs.version }}
         distribution: "temurin"
 
     - name: Set up Android SDK
