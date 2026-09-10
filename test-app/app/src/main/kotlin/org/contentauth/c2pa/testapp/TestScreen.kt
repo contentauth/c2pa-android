@@ -174,6 +174,8 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     // Stream Tests
     val streamTests = AppStreamTests(context)
     results.add(streamTests.testStreamOperations())
+    results.add(streamTests.testStreamExceptionPropagation())
+    results.add(streamTests.testStreamWriteExceptionPropagation())
     results.add(streamTests.testStreamFileOptions())
     results.add(streamTests.testWriteOnlyStreams())
     results.add(streamTests.testCustomStreamCallbacks())
@@ -200,6 +202,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(builderTests.testBmffMerkleHashing())
     results.add(builderTests.testBuilderEmbeddableErrorPaths())
     results.add(builderTests.testContextProgressCallback())
+    results.add(builderTests.testContextCloseDuringSign())
     results.add(builderTests.testContextHttpResolver())
     results.add(builderTests.testContextHttpResolverOkHttp())
     results.add(builderTests.testContextHttpResolverRemoteFetch())
