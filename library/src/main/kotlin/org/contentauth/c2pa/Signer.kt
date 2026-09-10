@@ -116,6 +116,11 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * }
          * ```
          */
+        @Deprecated(
+            "Settings-based signers rely on deprecated core APIs (c2pa_load_settings / " +
+                "c2pa_signer_from_settings). Configure the signer in C2PASettings, build a " +
+                "C2PAContext, and sign via Builder.signWithContext().",
+        )
         @JvmStatic
         @Throws(C2PAError::class)
         fun fromSettingsJson(settingsJson: String): Signer = fromSettings(settingsJson, "json")
@@ -161,6 +166,11 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * referenced_assertions = ["cawg.training-mining"]
          * ```
          */
+        @Deprecated(
+            "Settings-based signers rely on deprecated core APIs (c2pa_load_settings / " +
+                "c2pa_signer_from_settings). Configure the signer in C2PASettings, build a " +
+                "C2PAContext, and sign via Builder.signWithContext().",
+        )
         @JvmStatic
         @Throws(C2PAError::class)
         fun fromSettingsToml(settingsToml: String): Signer = fromSettings(settingsToml, "toml")
@@ -173,6 +183,7 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * @return A new [Signer] instance configured according to the settings.
          * @throws C2PAError if the settings are invalid or the signer cannot be created.
          */
+        @Suppress("DEPRECATION")
         @JvmStatic
         @Throws(C2PAError::class)
         private fun fromSettings(settings: String, format: String): Signer =
@@ -195,6 +206,11 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
          * @param format The format of the settings string ("json" or "toml").
          * @throws C2PAError if the settings are invalid.
          */
+        @Deprecated(
+            "Global settings apply relies on the deprecated c2pa_load_settings. Configure settings " +
+                "in C2PASettings and build a C2PAContext instead.",
+        )
+        @Suppress("DEPRECATION")
         @JvmStatic
         @Throws(C2PAError::class)
         fun loadSettings(settings: String, format: String) {

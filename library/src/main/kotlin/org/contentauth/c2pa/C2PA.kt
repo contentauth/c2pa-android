@@ -44,12 +44,20 @@ object C2PA {
      * Load settings from a string.
      * Returns the result code from the native call (0 for success).
      */
+    @Deprecated(
+        "Global settings apply relies on the deprecated c2pa_load_settings. Configure settings " +
+            "in C2PASettings and build a C2PAContext instead.",
+    )
     @JvmStatic
     fun loadSettingsResult(settings: String, format: String): Int = loadSettingsNative(settings, format)
 
     /**
      * Load settings from a string
      */
+    @Deprecated(
+        "Global settings apply relies on the deprecated c2pa_load_settings. Configure settings " +
+            "in C2PASettings and build a C2PAContext instead.",
+    )
     @Throws(C2PAError::class)
     fun loadSettings(settings: String, format: String) {
         executeC2PAOperation("Failed to load settings") {

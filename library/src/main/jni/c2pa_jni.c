@@ -1034,6 +1034,56 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_writeIngredientArchiveN
     return result;
 }
 
+// Builds a Builder.SignResult from a sign call's outputs. Frees manifestBytes on every
+// path; returns NULL (with the pending exception cleared) if construction fails.
+static jobject build_sign_result(JNIEnv *env, int64_t size, const unsigned char *manifestBytes) {
+    jclass resultClass = g_signResultClass;
+    if (resultClass == NULL) {
+        resultClass = (*env)->FindClass(env, "org/contentauth/c2pa/Builder$SignResult");
+        if (resultClass == NULL) {
+            check_exception(env);
+            if (manifestBytes != NULL) {
+                c2pa_free(manifestBytes);
+            }
+            return NULL;
+        }
+    }
+
+    jmethodID constructor = (*env)->GetMethodID(env, resultClass, "<init>", "(J[B)V");
+    if (constructor == NULL) {
+        check_exception(env);
+        if (manifestBytes != NULL) {
+            c2pa_free(manifestBytes);
+        }
+        return NULL;
+    }
+
+    jbyteArray jmanifestBytes = NULL;
+    if (manifestBytes != NULL && size > 0) {
+        jmanifestBytes = safe_new_byte_array(env, size);
+        if (jmanifestBytes == NULL) {
+            c2pa_free(manifestBytes);
+            return NULL;
+        }
+
+        (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, size, (const jbyte*)manifestBytes);
+        if (check_exception(env)) {
+            c2pa_free(manifestBytes);
+            return NULL;
+        }
+    }
+    if (manifestBytes != NULL) {
+        c2pa_free(manifestBytes);
+    }
+
+    jobject result = (*env)->NewObject(env, resultClass, constructor, (jlong)size, jmanifestBytes);
+    if (result == NULL) {
+        check_exception(env);
+    }
+
+    return result;
+}
+
 JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr, jlong signerPtr) {
     if (builderPtr == 0 || format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0 || signerPtr == 0) {
         (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"), 
@@ -1055,57 +1105,43 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signNative(JNIEnv *e
     int64_t size = c2pa_builder_sign(builder, cformat, source, dest, signer, &manifestBytes);
     
     release_cstring(env, format, cformat);
-    
+
+    // On failure, return NULL and let the Kotlin wrapper raise C2PAError from c2pa_error().
     if (size < 0) {
-        throw_c2pa_exception(env, "Failed to sign builder");
         return NULL;
     }
-    
-    // Create result object
-    jclass resultClass = g_signResultClass;
-    if (resultClass == NULL) {
-        resultClass = (*env)->FindClass(env, "org/contentauth/c2pa/Builder$SignResult");
-        if (resultClass == NULL) {
-            check_exception(env);
-            if (manifestBytes != NULL) {
-                c2pa_free(manifestBytes);
-            }
-            return NULL;
-        }
-    }
-    
-    jmethodID constructor = (*env)->GetMethodID(env, resultClass, "<init>", "(J[B)V");
-    if (constructor == NULL) {
-        check_exception(env);
-        if (manifestBytes != NULL) {
-            c2pa_free(manifestBytes);
-        }
+
+    return build_sign_result(env, size, manifestBytes);
+}
+
+JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNative(JNIEnv *env, jobject obj, jlong builderPtr, jstring format, jlong sourceStreamPtr, jlong destStreamPtr) {
+    if (builderPtr == 0 || format == NULL || sourceStreamPtr == 0 || destStreamPtr == 0) {
+        (*env)->ThrowNew(env, (*env)->FindClass(env, "java/lang/IllegalArgumentException"),
+                         "Builder, format, and streams cannot be null");
         return NULL;
     }
-    
-    jbyteArray jmanifestBytes = NULL;
-    if (manifestBytes != NULL && size > 0) {
-        jmanifestBytes = safe_new_byte_array(env, size);
-        if (jmanifestBytes == NULL) {
-            c2pa_free(manifestBytes);
-            return NULL;
-        }
-        
-        (*env)->SetByteArrayRegion(env, jmanifestBytes, 0, size, (const jbyte*)manifestBytes);
-        if (check_exception(env)) {
-            c2pa_free(manifestBytes);
-            return NULL;
-        }
-        
-        c2pa_free(manifestBytes);
+
+    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
+    const char *cformat = jstring_to_cstring(env, format);
+    if (cformat == NULL) {
+        return NULL;
     }
-    
-    jobject result = (*env)->NewObject(env, resultClass, constructor, (jlong)size, jmanifestBytes);
-    if (result == NULL) {
-        check_exception(env);
+
+    struct C2paStream *source = (struct C2paStream*)(uintptr_t)sourceStreamPtr;
+    struct C2paStream *dest = (struct C2paStream*)(uintptr_t)destStreamPtr;
+
+    // Signer comes from the builder's context (programmatic or from settings).
+    const unsigned char *manifestBytes = NULL;
+    int64_t size = c2pa_builder_sign_context(builder, cformat, source, dest, &manifestBytes);
+
+    release_cstring(env, format, cformat);
+
+    // On failure, return NULL and let the Kotlin wrapper raise C2PAError from c2pa_error().
+    if (size < 0) {
+        return NULL;
     }
-    
-    return result;
+
+    return build_sign_result(env, size, manifestBytes);
 }
 
 // New Builder methods

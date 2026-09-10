@@ -576,13 +576,30 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * @throws C2PAError.Api if signing fails
      */
     @Throws(C2PAError::class)
-    fun sign(format: String, source: Stream, dest: Stream, signer: Signer): SignResult {
-        val result = signNative(ptr, format, source.rawPtr, dest.rawPtr, signer.ptr)
-        if (result.size < 0) {
-            throw C2PAError.Api(C2PA.getError() ?: "Failed to sign")
-        }
-        return result
-    }
+    fun sign(format: String, source: Stream, dest: Stream, signer: Signer): SignResult =
+        signNative(ptr, format, source.rawPtr, dest.rawPtr, signer.ptr)
+            ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign")
+
+    /**
+     * Signs the manifest using the signer configured on the builder's [C2PAContext] — either set
+     * programmatically (`C2PAContextBuilder.setSigner`) or supplied via settings (`[signer.local]`
+     * / `[cawg_x509_signer]`) — and writes the signed asset to [dest].
+     *
+     * Unlike [sign], no explicit [Signer] is passed; the builder's context must have a signer
+     * configured, or signing fails. Every builder has a context ([fromJson] creates one
+     * internally), so this also works for builders created with [fromJson] and a [C2PASettings]
+     * that carries a signer. Use this instead of the deprecated settings-based [Signer] factories.
+     *
+     * @param format The MIME type of the asset (e.g. "image/jpeg")
+     * @param source The input stream containing the original asset
+     * @param dest The output stream for the signed asset
+     * @return A [SignResult] containing the manifest size and optional manifest bytes
+     * @throws C2PAError.Api if signing fails (e.g. the context has no signer)
+     */
+    @Throws(C2PAError::class)
+    fun signWithContext(format: String, source: Stream, dest: Stream): SignResult =
+        signWithContextNative(ptr, format, source.rawPtr, dest.rawPtr)
+            ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign with context")
 
     /**
      * Creates a data-hashed placeholder for deferred signing workflows.
@@ -815,7 +832,13 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         sourceHandle: Long,
         destHandle: Long,
         signerHandle: Long,
-    ): SignResult
+    ): SignResult?
+    private external fun signWithContextNative(
+        handle: Long,
+        format: String,
+        sourceHandle: Long,
+        destHandle: Long,
+    ): SignResult?
     private external fun dataHashedPlaceholderNative(handle: Long, reservedSize: Long, format: String): ByteArray?
     private external fun signDataHashedEmbeddableNative(
         handle: Long,
