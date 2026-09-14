@@ -315,8 +315,15 @@ tasks.register("downloadNativeLibraries") {
                         matches[0]
                     } else {
                         val downloaded = downloadDir.resolve("$arch.zip")
+
+                        // rc releases are tagged c2pa-rc-v<version>, not
+                        // c2pa-v<version> – upstream moved them out of the
+                        // c2pa-v* namespace (contentauth/c2pa-rs#2636). The
+                        // asset filenames are unaffected; only the release
+                        // tag in this URL needs the rc-specific prefix.
+                        val tagPrefix = if (version.contains("-rc.")) "c2pa-rc-" else "c2pa-"
                         val url =
-                            "https://github.com/contentauth/c2pa-rs/releases/download/c2pa-$version/c2pa-$version-$target.zip"
+                            "https://github.com/contentauth/c2pa-rs/releases/download/$tagPrefix$version/c2pa-$version-$target.zip"
                         println("Downloading from: $url")
                         if (!downloaded.exists()) {
                             val connection = URI(url).toURL().openConnection() as HttpURLConnection

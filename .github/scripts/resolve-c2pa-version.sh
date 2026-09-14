@@ -9,7 +9,8 @@
 #
 # Exit codes:
 #   0  resolved; a v-prefixed version (e.g. v0.91.0-rc.2) on stdout -- built
-#      from the matching c2pa-v* tag, not printed verbatim as its suffix
+#      from the matching c2pa-v* or (rc mode) c2pa-rc-v* tag, not printed
+#      verbatim as its suffix
 #   3  nothing to track -- the idle-train no-op; stdout empty
 #   1  usage or input error
 
@@ -68,17 +69,29 @@ if ! printf '%s' "$raw_input" | jq -e 'type == "array"' >/dev/null 2>&1; then
   exit 1
 fi
 
-# Consider only the c2pa-v* tag family. Per c2pa-rs docs/release-process.md it
-# is library-release.yml, triggered on c2pa-v* tags, that builds the Android
-# binaries our downloadNativeLibraries Gradle task downloads -- so this tag
-# family, and not c2pa-c-ffi-v*, is the authoritative "do binaries exist"
-# signal. It is also the family the download URL in library/build.gradle.kts
-# is composed from, which c2pa-c-ffi-v* is not.
+# Consider only the c2pa-v* and (rc mode only) c2pa-rc-v* tag families. Per
+# c2pa-rs docs/release-process.md it is library-release.yml, triggered on
+# those tags, that builds the Android binaries our downloadNativeLibraries
+# Gradle task downloads -- so these tag families, and not c2pa-c-ffi-v*, are
+# the authoritative "do binaries exist" signal. They are also what the
+# download URL in library/build.gradle.kts is composed from, which
+# c2pa-c-ffi-v* is not.
+#
+# Upstream moved release-candidate tags out of the c2pa-v* namespace into
+# their own c2pa-rc-v* namespace (contentauth/c2pa-rs#2636), so rc mode reads
+# both families. Stable candidates still come only from c2pa-v*: a stable
+# release is never tagged c2pa-rc-v*, and the pattern match below would
+# reject an rc-suffixed version anyway.
 #
 # Selection is by tag SHAPE rather than the .prerelease flag, so a mis-flagged
 # upstream release cannot put a release candidate on the stable branch.
 # Drafts are excluded: they carry no downloadable assets.
-tags="$(printf '%s' "$raw_input" | jq -r '.[] | select(.draft != true) | .tag_name' | sed -n 's/^c2pa-v//p')"
+all_tags="$(printf '%s' "$raw_input" | jq -r '.[] | select(.draft != true) | .tag_name')"
+tags="$(printf '%s\n' "$all_tags" | sed -n 's/^c2pa-v//p')"
+if [ "$mode" = "rc" ]; then
+  tags="$tags
+$(printf '%s\n' "$all_tags" | sed -n 's/^c2pa-rc-v//p')"
+fi
 
 case "$mode" in
   stable) pattern='^[0-9]+\.[0-9]+\.[0-9]+$' ;;
