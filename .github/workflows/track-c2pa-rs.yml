@@ -159,10 +159,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ inputs.source_repo }}
+          MODE: ${{ inputs.mode }}
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          gh api "repos/${SOURCE_REPO}/releases/tags/c2pa-${VERSION}" \
+
+          # rc releases are tagged c2pa-rc-v<version>, not c2pa-v<version> –
+          # upstream moved them out of the c2pa-v* namespace
+          # (contentauth/c2pa-rs#2636). The asset filenames are unaffected;
+          # only this tag lookup needs the mode-specific prefix.
+          tag_prefix="c2pa-"
+          [ "$MODE" = "rc" ] && tag_prefix="c2pa-rc-"
+
+          gh api "repos/${SOURCE_REPO}/releases/tags/${tag_prefix}${VERSION}" \
             | .github/scripts/check-c2pa-assets.sh "$VERSION"
 
       - name: Idempotence Guard
