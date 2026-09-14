@@ -160,7 +160,8 @@ abstract class WebServiceTests : TestBase() {
                                             "data": {
                                                 "actions": [
                                                     {
-                                                        "action": "c2pa.created"
+                                                        "action": "c2pa.created",
+                                                        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
                                                     }
                                                 ]
                                             }
