@@ -2305,8 +2305,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgress
     );
     if (result != 0) {
         unregister_context_callback(jctx);
-        (*env)->DeleteGlobalRef(env, jctx->callback);
-        free(jctx);
+        release_context_callback(env, jctx);
         throw_c2pa_exception(env, "Failed to set progress callback");
         return 0;
     }
@@ -2361,8 +2360,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
     struct C2paHttpResolver *resolver = c2pa_http_resolver_create((void*)jctx->id, java_http_resolver_callback);
     if (resolver == NULL) {
         unregister_context_callback(jctx);
-        (*env)->DeleteGlobalRef(env, jctx->callback);
-        free(jctx);
+        release_context_callback(env, jctx);
         throw_c2pa_exception(env, "Failed to create HTTP resolver");
         return 0;
     }
@@ -2372,8 +2370,7 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setHttpReso
         // set_http_resolver only consumes the resolver on success; free it on failure.
         c2pa_free(resolver);
         unregister_context_callback(jctx);
-        (*env)->DeleteGlobalRef(env, jctx->callback);
-        free(jctx);
+        release_context_callback(env, jctx);
         throw_c2pa_exception(env, "Failed to set HTTP resolver");
         return 0;
     }
