@@ -153,7 +153,20 @@ abstract class WebServiceTests : TestBase() {
                     """
                                 {
                                     "claim_generator": "c2pa-android-test/1.0",
-                                    "title": "Web Service Test"
+                                    "title": "Web Service Test",
+                                    "assertions": [
+                                        {
+                                            "label": "c2pa.actions",
+                                            "data": {
+                                                "actions": [
+                                                    {
+                                                        "action": "c2pa.created",
+                                                        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    ]
                                 }
                     """.trimIndent()
 
