@@ -22,6 +22,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.dokka")
     id("jacoco")
+    id("org.cyclonedx.bom") version "3.4.1"
     `maven-publish`
 }
 
@@ -149,6 +150,35 @@ dependencies {
 // JaCoCo configuration
 jacoco { toolVersion = "0.8.10" }
 
+// Version of the published artifact. The release workflow supplies it as CI_COMMIT_TAG and JitPack
+// as VERSION. There is deliberately no default: a release whose version did not arrive must fail
+// rather than publish and attest under a made-up one, since a published release cannot be redone.
+val releaseVersion: String? =
+    (System.getenv("CI_COMMIT_TAG") ?: System.getenv("VERSION").takeIf { System.getenv("JITPACK") == "true" })
+        ?.takeIf { it.isNotBlank() }
+
+gradle.taskGraph.whenReady {
+    val needsVersion = allTasks.any {
+        it.project == project && (it.name.startsWith("publish") || it.name == "cyclonedxDirectBom")
+    }
+    if (needsVersion && releaseVersion == null) {
+        throw GradleException(
+            "No release version: set CI_COMMIT_TAG (e.g. CI_COMMIT_TAG=1.2.3) to publish or to generate the SBOM.",
+        )
+    }
+}
+
+// CycloneDX SBOM configuration. The main component carries the coordinates of the "release"
+// publication below rather than the Gradle project's, so the SBOM names the artifact it ships with.
+tasks.cyclonedxDirectBom {
+    componentGroup = "org.contentauth"
+    componentName = "c2pa"
+    releaseVersion?.let { componentVersion = it }
+    includeConfigs = listOf("releaseRuntimeClasspath")
+    jsonOutput.set(file("build/reports/sbom.json"))
+    xmlOutput.unsetConvention()
+}
+
 // Coverage report for instrumented tests only
 tasks.register<JacocoReport>("jacocoInstrumentedTestReport") {
     dependsOn("createDebugCoverageReport")
@@ -199,7 +229,7 @@ publishing {
             afterEvaluate { from(components["release"]) }
             groupId = "org.contentauth"
             artifactId = "c2pa"
-            version = System.getenv("CI_COMMIT_TAG") ?: "1.0.0-SNAPSHOT"
+            releaseVersion?.let { version = it }
         }
     }
     repositories {
