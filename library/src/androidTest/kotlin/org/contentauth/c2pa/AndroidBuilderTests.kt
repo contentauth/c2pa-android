@@ -172,6 +172,12 @@ class AndroidBuilderTests : BuilderTests() {
     }
 
     @Test
+    fun runTestContextCloseDuringSign() = runBlocking {
+        val result = testContextCloseDuringSign()
+        assertTrue(result.success, "Context Close During Sign test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestContextHttpResolverRemoteFetch() = runBlocking {
         val result = testContextHttpResolverRemoteFetch()
         assertTrue(result.success, "Context HTTP Resolver Remote Fetch test failed: ${result.message}")

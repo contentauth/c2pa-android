@@ -42,7 +42,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 
 /** BuilderTests - Builder API tests for manifest creation */
 abstract class BuilderTests : TestBase() {
@@ -931,6 +934,81 @@ abstract class BuilderTests : TestBase() {
                 )
             } catch (e: C2PAError) {
                 TestResult("Context Progress Callback", false, "Progress callback flow threw", e.toString())
+            }
+        }
+    }
+
+    suspend fun testContextCloseDuringSign(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Close During Sign") {
+            try {
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+                val settingsJson =
+                    """{"version": 1, "builder": {"created_assertion_labels": ["c2pa.actions"]}}"""
+
+                // Block the first progress callback until the context has been closed on
+                // this thread, so the close races an in-flight callback invocation. The
+                // callback boxes must stay alive until the invocation returns.
+                val firstUpdate = CountDownLatch(1)
+                val contextClosed = CountDownLatch(1)
+                val updateCount = AtomicInteger(0)
+
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContextBuilder.create()
+                        .setSettings(settings)
+                        .setProgressCallback {
+                            if (updateCount.incrementAndGet() == 1) {
+                                firstUpdate.countDown()
+                                contextClosed.await(10, TimeUnit.SECONDS)
+                            }
+                        }
+                        .build()
+                }
+
+                var signedSize = -1L
+                var signError: Exception? = null
+                val builder = Builder.fromContext(context).withDefinition(TEST_MANIFEST_JSON)
+                val signThread = thread {
+                    try {
+                        ByteArrayStream(sourceImageData).use { source ->
+                            ByteArrayStream().use { dest ->
+                                Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                    signedSize = builder.sign("image/jpeg", source, dest, signer).size
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        signError = e
+                    }
+                }
+
+                val callbackSeen = firstUpdate.await(10, TimeUnit.SECONDS)
+                if (callbackSeen) {
+                    context.close()
+                }
+                contextClosed.countDown()
+                signThread.join(20000)
+                builder.close()
+                if (!callbackSeen) {
+                    context.close()
+                }
+
+                val success = callbackSeen && !signThread.isAlive && signError == null && signedSize > 0
+                TestResult(
+                    "Context Close During Sign",
+                    success,
+                    if (success) {
+                        "Context closed during an in-flight callback without disturbing the sign"
+                    } else {
+                        "Close-during-sign race failed"
+                    },
+                    "Callback seen: $callbackSeen, updates: ${updateCount.get()}, " +
+                        "signed size: $signedSize, error: $signError",
+                )
+            } catch (e: Exception) {
+                TestResult("Context Close During Sign", false, "Close-during-sign flow threw", e.toString())
             }
         }
     }

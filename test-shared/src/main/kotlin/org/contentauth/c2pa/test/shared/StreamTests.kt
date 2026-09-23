@@ -24,6 +24,7 @@ import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.SeekMode
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 
 /** StreamTests - Stream operations and I/O tests */
 abstract class StreamTests : TestBase() {
@@ -51,6 +52,87 @@ abstract class StreamTests : TestBase() {
                     )
                 }
             }
+        }
+    }
+
+    suspend fun testStreamExceptionPropagation(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Stream Exception Propagation") {
+            // An exception thrown by a stream callback must surface to the caller as
+            // itself, not as a generic error, and must not be left pending while the
+            // native operation keeps running.
+            val marker = "stream deliberately broken"
+            var thrown: Throwable? = null
+
+            CallbackStream(
+                reader = { _, _ -> throw IOException(marker) },
+                seeker = { _, _ -> 0L },
+            ).use { stream ->
+                try {
+                    Reader.fromStream("image/jpeg", stream).use { }
+                } catch (e: Throwable) {
+                    thrown = e
+                }
+            }
+
+            val success = thrown is IOException && thrown?.message == marker
+            TestResult(
+                "Stream Exception Propagation",
+                success,
+                if (success) {
+                    "Stream callback exception surfaced as the original IOException"
+                } else {
+                    "Expected the callback's IOException, got: $thrown"
+                },
+                "Thrown: $thrown",
+            )
+        }
+    }
+
+    suspend fun testStreamWriteExceptionPropagation(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Stream Write Exception Propagation") {
+            // The write path through a result-code entry point (toArchive) must surface
+            // the callback's exception as itself, and the exception must not linger:
+            // an unrelated failure on the same thread afterwards must raise its own
+            // error, not the stream's.
+            val marker = "write deliberately broken"
+            var archiveThrown: Throwable? = null
+            var laterThrown: Throwable? = null
+
+            Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                CallbackStream(
+                    writer = { _, _ -> throw IOException(marker) },
+                    seeker = { _, _ -> 0L },
+                    flusher = { 0 },
+                ).use { dest ->
+                    try {
+                        builder.toArchive(dest)
+                    } catch (e: Throwable) {
+                        archiveThrown = e
+                    }
+                }
+            }
+
+            Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                try {
+                    builder.withDefinition("{ not valid json")
+                } catch (e: Throwable) {
+                    laterThrown = e
+                }
+            }
+
+            val propagated = archiveThrown is IOException && archiveThrown?.message == marker
+            val isolated = laterThrown != null && laterThrown !is IOException
+            val success = propagated && isolated
+            TestResult(
+                "Stream Write Exception Propagation",
+                success,
+                when {
+                    success -> "toArchive surfaced the IOException and it did not leak into the next call"
+                    !propagated -> "Expected the writer's IOException from toArchive, got: $archiveThrown"
+                    else -> "Stale stream exception leaked into an unrelated call: $laterThrown"
+                },
+                "toArchive threw: $archiveThrown\nwithDefinition threw: $laterThrown",
+            )
         }
     }
 
