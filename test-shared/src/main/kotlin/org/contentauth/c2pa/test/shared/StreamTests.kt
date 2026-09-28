@@ -13,6 +13,7 @@ each license.
 package org.contentauth.c2pa.test.shared
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
@@ -22,12 +23,20 @@ import org.contentauth.c2pa.CallbackStream
 import org.contentauth.c2pa.FileStream
 import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.SeekMode
+import org.contentauth.c2pa.Stream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.lang.ref.WeakReference
 
 /** StreamTests - Stream operations and I/O tests */
 abstract class StreamTests : TestBase() {
+
+    companion object {
+        private const val RELEASED_STREAM_COUNT = 8
+        private const val GC_ATTEMPTS = 20
+        private const val GC_RETRY_DELAY_MS = 50L
+    }
 
     suspend fun testStreamOperations(): TestResult = withContext(Dispatchers.IO) {
         runTest("Stream API") {
@@ -416,6 +425,54 @@ abstract class StreamTests : TestBase() {
             )
         }
     }
+
+    suspend fun testStreamReleaseFreesContext(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Stream Release Frees Context") {
+            // The core's stream handle is opaque, so the bridge keeps its own
+            // handle-to-context association. Releasing a stream must free that
+            // stream's context, dropping the global ref that pins the Kotlin object,
+            // and must leave every other live stream's context intact.
+            val errors = mutableListOf<String>()
+            val testImageData = loadResourceAsBytes("adobe_20220124_ci")
+
+            ByteArrayStream(testImageData).use { survivor ->
+                ByteArrayStream(testImageData).close()
+                val json = Reader.fromStream("image/jpeg", survivor).use { it.json() }
+                if (json.isEmpty()) {
+                    errors.add("Live stream unreadable after releasing another stream")
+                }
+            }
+
+            val released = closedStreamRefs(testImageData, RELEASED_STREAM_COUNT)
+            var collected = 0
+            repeat(GC_ATTEMPTS) {
+                if (collected < released.size) {
+                    Runtime.getRuntime().gc()
+                    System.runFinalization()
+                    delay(GC_RETRY_DELAY_MS)
+                    collected = released.count { it.get() == null }
+                }
+            }
+            if (collected < released.size) {
+                errors.add(
+                    "${released.size - collected} of ${released.size} closed streams still " +
+                        "reachable; their native contexts were not freed",
+                )
+            }
+
+            val success = errors.isEmpty()
+            TestResult(
+                "Stream Release Frees Context",
+                success,
+                if (success) "Stream release frees only its own context" else "Stream release failures",
+                errors.joinToString("\n"),
+            )
+        }
+    }
+
+    // Allocated in a separate frame so no local keeps the streams reachable.
+    private fun closedStreamRefs(data: ByteArray, count: Int): List<WeakReference<Stream>> =
+        List(count) { WeakReference<Stream>(ByteArrayStream(data).also { it.close() }) }
 
     suspend fun testLargeBufferHandling(): TestResult = withContext(Dispatchers.IO) {
         runTest("Large Buffer Handling") {
