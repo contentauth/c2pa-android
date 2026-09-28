@@ -90,4 +90,10 @@ class AndroidStreamTests : StreamTests() {
         )
     }
 
+    @Test
+    fun runTestStreamReleaseFreesContext() = runBlocking {
+        val result = testStreamReleaseFreesContext()
+        assertTrue(result.success, "Stream Release Frees Context test failed: ${result.message}")
+    }
+
 }
