@@ -51,13 +51,15 @@ fun interface HttpResolver {
 
 /**
  * Internal adapter invoked from JNI: builds a [HttpRequest] from the native request fields and
- * forwards to the user's [HttpResolver]. The `resolve(String, String, String, byte[])` signature and
- * the returned [HttpResponse] are referenced by the native trampoline and must not change without
- * updating `c2pa_jni.c`.
+ * forwards to the user's [HttpResolver]. The URL, method and headers arrive as UTF-8 bytes. The
+ * `resolve(byte[], byte[], byte[], byte[])` signature and the returned [HttpResponse] are referenced
+ * by the native trampoline and must not change without updating `c2pa_jni.c`.
  */
 internal class HttpResolverBridge(private val resolver: HttpResolver) {
-    fun resolve(url: String, method: String, headers: String?, body: ByteArray?): HttpResponse =
-        resolver.resolve(HttpRequest(url, method, parseHeaders(headers), body))
+    fun resolve(url: ByteArray, method: ByteArray, headers: ByteArray?, body: ByteArray?): HttpResponse =
+        resolver.resolve(
+            HttpRequest(url.fromNativeUtf8(), method.fromNativeUtf8(), parseHeaders(headers?.fromNativeUtf8()), body),
+        )
 
     private fun parseHeaders(headers: String?): Map<String, String> {
         if (headers.isNullOrEmpty()) return emptyMap()

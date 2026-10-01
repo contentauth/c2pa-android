@@ -98,7 +98,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
         @Throws(C2PAError::class)
         fun fromStream(format: String, stream: Stream): Reader =
             executeC2PAOperation("Failed to create reader from stream") {
-                val handle = fromStreamNative(format, stream.rawPtr)
+                val handle = fromStreamNative(format.toNativeUtf8(), stream.rawPtr)
                 if (handle == 0L) null else Reader(handle)
             }
 
@@ -155,7 +155,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
         @Throws(C2PAError::class)
         fun fromManifestAndStream(format: String, stream: Stream, manifest: ByteArray): Reader =
             executeC2PAOperation("Failed to create reader from manifest and stream") {
-                val handle = fromManifestDataAndStreamNative(format, stream.rawPtr, manifest)
+                val handle = fromManifestDataAndStreamNative(format.toNativeUtf8(), stream.rawPtr, manifest)
                 if (handle == 0L) null else Reader(handle)
             }
 
@@ -165,17 +165,18 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
          * @return The supported MIME types (e.g. "image/jpeg"), or an empty list if none
          */
         @JvmStatic
-        fun supportedMimeTypes(): List<String> = supportedMimeTypesNative()?.toList() ?: emptyList()
+        fun supportedMimeTypes(): List<String> =
+            supportedMimeTypesNative()?.mapNotNull { it?.fromNativeUtf8() } ?: emptyList()
 
         @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
 
-        @JvmStatic private external fun supportedMimeTypesNative(): Array<String>?
+        @JvmStatic private external fun supportedMimeTypesNative(): Array<ByteArray?>?
 
-        @JvmStatic private external fun fromStreamNative(format: String, streamHandle: Long): Long
+        @JvmStatic private external fun fromStreamNative(format: ByteArray, streamHandle: Long): Long
 
         @JvmStatic
         private external fun fromManifestDataAndStreamNative(
-            format: String,
+            format: ByteArray,
             streamHandle: Long,
             manifestData: ByteArray,
         ): Long
@@ -197,7 +198,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun withStream(format: String, stream: Stream): Reader {
-        val newPtr = withStreamNative(ptr, format, stream.rawPtr)
+        val newPtr = withStreamNative(ptr, format.toNativeUtf8(), stream.rawPtr)
         if (newPtr == 0L) {
             ptr = 0
             throw C2PAError.Api(C2PA.getError() ?: "Failed to configure reader with stream")
@@ -226,7 +227,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun withFragment(format: String, stream: Stream, fragment: Stream): Reader {
-        val newPtr = withFragmentNative(ptr, format, stream.rawPtr, fragment.rawPtr)
+        val newPtr = withFragmentNative(ptr, format.toNativeUtf8(), stream.rawPtr, fragment.rawPtr)
         if (newPtr == 0L) {
             ptr = 0
             throw C2PAError.Api(C2PA.getError() ?: "Failed to configure reader with fragment")
@@ -259,7 +260,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun json(): String {
-        val json = toJsonNative(ptr)
+        val json = toJsonNative(ptr)?.fromNativeUtf8()
         if (json == null) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to convert to JSON")
         }
@@ -290,7 +291,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun detailedJson(): String {
-        val json = toDetailedJsonNative(ptr)
+        val json = toDetailedJsonNative(ptr)?.fromNativeUtf8()
         if (json == null) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to convert to detailed JSON")
         }
@@ -312,7 +313,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun crJSON(): String {
-        val json = crjsonNative(ptr)
+        val json = crjsonNative(ptr)?.fromNativeUtf8()
         if (json == null) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to convert to crJSON")
         }
@@ -341,7 +342,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      * @see isEmbedded
      */
     fun remoteUrl(): String? {
-        return remoteUrlNative(ptr)
+        return remoteUrlNative(ptr)?.fromNativeUtf8()
     }
 
     /**
@@ -394,7 +395,7 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun resource(uri: String, to: Stream) {
-        val result = resourceToStreamNative(ptr, uri, to.rawPtr)
+        val result = resourceToStreamNative(ptr, uri.toNativeUtf8(), to.rawPtr)
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to write resource")
         }
@@ -414,12 +415,17 @@ class Reader internal constructor(private var ptr: Long) : Closeable {
     }
 
     private external fun free(handle: Long)
-    private external fun withStreamNative(handle: Long, format: String, streamHandle: Long): Long
-    private external fun withFragmentNative(handle: Long, format: String, streamHandle: Long, fragmentHandle: Long): Long
-    private external fun toJsonNative(handle: Long): String?
-    private external fun toDetailedJsonNative(handle: Long): String?
-    private external fun crjsonNative(handle: Long): String?
-    private external fun remoteUrlNative(handle: Long): String?
+    private external fun withStreamNative(handle: Long, format: ByteArray, streamHandle: Long): Long
+    private external fun withFragmentNative(
+        handle: Long,
+        format: ByteArray,
+        streamHandle: Long,
+        fragmentHandle: Long,
+    ): Long
+    private external fun toJsonNative(handle: Long): ByteArray?
+    private external fun toDetailedJsonNative(handle: Long): ByteArray?
+    private external fun crjsonNative(handle: Long): ByteArray?
+    private external fun remoteUrlNative(handle: Long): ByteArray?
     private external fun isEmbeddedNative(handle: Long): Boolean
-    private external fun resourceToStreamNative(handle: Long, uri: String, streamHandle: Long): Long
+    private external fun resourceToStreamNative(handle: Long, uri: ByteArray, streamHandle: Long): Long
 }

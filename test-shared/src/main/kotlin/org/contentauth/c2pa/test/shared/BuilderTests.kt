@@ -938,6 +938,127 @@ abstract class BuilderTests : TestBase() {
         }
     }
 
+    suspend fun testEmbeddedNulRejected(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Embedded NUL Rejected") {
+            // Strings reach the core as NUL-terminated C strings, so one containing U+0000
+            // must be rejected on the Kotlin side with a C2PAError rather than silently
+            // truncated at the NUL. Covered: a wrapper that calls the native directly, one
+            // routed through executeC2PAOperation, a native taking two strings, and the
+            // optional TSA URL, whose failure must not leave a half-built signer behind.
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+            val cases = listOf<Pair<String, () -> Unit>>(
+                "Builder.setRemoteURL" to {
+                    Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                        builder.setRemoteURL("https://example.com/manifest\u0000.c2pa")
+                    }
+                },
+                "Reader.fromStream" to {
+                    ByteArrayStream(ByteArray(0)).use { stream ->
+                        Reader.fromStream("image/jpeg\u0000", stream).close()
+                    }
+                },
+                "C2PASettings.setValue" to {
+                    C2PASettings.create().use { settings ->
+                        settings.setValue("verify.verify_after_sign\u0000", "\u0000")
+                    }
+                },
+                "Signer.fromInfo tsaURL" to {
+                    Signer.fromInfo(
+                        SignerInfo(SigningAlgorithm.ES256, certPem, keyPem, "https://tsa.example\u0000"),
+                    ).close()
+                },
+            )
+
+            val failures = cases.mapNotNull { (name, call) ->
+                val thrown = try {
+                    call()
+                    null
+                } catch (e: Throwable) {
+                    e
+                }
+                if (thrown is C2PAError.Api) null else "$name: expected C2PAError.Api, got $thrown"
+            }
+
+            val success = failures.isEmpty()
+            TestResult(
+                "Embedded NUL Rejected",
+                success,
+                if (success) {
+                    "Strings containing U+0000 rejected with C2PAError.Api"
+                } else {
+                    "U+0000 not rejected as C2PAError.Api"
+                },
+                failures.joinToString("\n"),
+            )
+        }
+    }
+
+    suspend fun testUnicodeManifestRoundTrip(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Unicode Manifest Round Trip") {
+            try {
+                // Supplementary-plane characters cross the JNI string bridge in both
+                // directions: into the manifest definition at sign time and back out of
+                // the manifest JSON at read time.
+                val title = "Unicode 🌍🎥 déjà vu ✓"
+                val manifestJson = """{
+                    "claim_generator": "test_app/1.0",
+                    "title": ${JSONObject.quote(title)},
+                    "assertions": [
+                        {
+                            "label": "c2pa.actions",
+                            "data": {
+                                "actions": [
+                                    {
+                                        "action": "c2pa.created",
+                                        "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }"""
+
+                val certPem = loadResourceAsString("es256_certs")
+                val keyPem = loadResourceAsString("es256_private")
+                val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
+
+                val signedData = Builder.fromJson(manifestJson).use { builder ->
+                    ByteArrayStream(sourceImageData).use { source ->
+                        ByteArrayStream().use { dest ->
+                            Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem)).use { signer ->
+                                builder.sign("image/jpeg", source, dest, signer)
+                            }
+                            dest.getData()
+                        }
+                    }
+                }
+
+                val readTitle = ByteArrayStream(signedData).use { stream ->
+                    Reader.fromStream("image/jpeg", stream).use { reader ->
+                        val json = JSONObject(reader.json())
+                        val active = json.optString("active_manifest")
+                        json.getJSONObject("manifests").getJSONObject(active).optString("title")
+                    }
+                }
+
+                val success = readTitle == title
+                TestResult(
+                    "Unicode Manifest Round Trip",
+                    success,
+                    if (success) {
+                        "Supplementary-plane title round-tripped intact"
+                    } else {
+                        "Title mangled in round trip"
+                    },
+                    "Expected: $title\nActual: $readTitle",
+                )
+            } catch (e: Exception) {
+                TestResult("Unicode Manifest Round Trip", false, "Unicode round-trip flow threw", e.toString())
+            }
+        }
+    }
+
     suspend fun testClosedHandleValidation(): TestResult = withContext(Dispatchers.IO) {
         runTest("Closed Handle Validation") {
             // Calls on closed handles must be rejected with a typed exception at the
