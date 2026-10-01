@@ -257,6 +257,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     // Additional Stream Tests
     results.add(streamTests.testCallbackStreamFactories())
     results.add(streamTests.testByteArrayStreamBufferGrowth())
+    results.add(streamTests.testStreamReleaseFreesContext())
     results.add(streamTests.testLargeBufferHandling())
 
     // Manifest Tests

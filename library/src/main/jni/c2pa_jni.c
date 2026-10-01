@@ -75,10 +75,22 @@ typedef struct ContextCallbackNode {
     struct ContextCallbackNode *next;
 } ContextCallbackNode;
 
+// Stream context keyed by the handle c2pa_create_stream returned. C2paStream is
+// opaque in the core's header and its handle need not be an address, so the
+// context is found through this association on release, never through the
+// stream itself.
+typedef struct StreamContextNode {
+    uintptr_t handle;
+    JavaStreamContext *context;
+    struct StreamContextNode *next;
+} StreamContextNode;
+
 static SignerContextNode *g_signerContexts = NULL;
 static pthread_mutex_t g_signerContextsMutex = PTHREAD_MUTEX_INITIALIZER;
 static ContextCallbackNode *g_contextCallbacks = NULL;
 static pthread_mutex_t g_contextCallbacksMutex = PTHREAD_MUTEX_INITIALIZER;
+static StreamContextNode *g_streamContexts = NULL;
+static pthread_mutex_t g_streamContextsMutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Monotonic source of callback-context ids. Never reused for the lifetime of
 // the process; 0 is reserved so a NULL user_data never matches.
@@ -708,6 +720,42 @@ static jboolean unregister_context_callback(JavaContextCallback *ctx) {
     return removed;
 }
 
+// Associates a stream handle with its Java context. Returns JNI_FALSE on
+// allocation failure.
+static jboolean register_stream_context(uintptr_t handle, JavaStreamContext *ctx) {
+    StreamContextNode *node = (StreamContextNode*)malloc(sizeof(StreamContextNode));
+    if (node == NULL) {
+        return JNI_FALSE;
+    }
+    node->handle = handle;
+    node->context = ctx;
+    pthread_mutex_lock(&g_streamContextsMutex);
+    node->next = g_streamContexts;
+    g_streamContexts = node;
+    pthread_mutex_unlock(&g_streamContextsMutex);
+    return JNI_TRUE;
+}
+
+// Removes a stream handle's association and returns its context, or NULL if the
+// handle is not registered. The caller owns the returned context.
+static JavaStreamContext *take_stream_context(uintptr_t handle) {
+    JavaStreamContext *found = NULL;
+    pthread_mutex_lock(&g_streamContextsMutex);
+    StreamContextNode **current = &g_streamContexts;
+    while (*current != NULL) {
+        if ((*current)->handle == handle) {
+            StreamContextNode *node = *current;
+            *current = node->next;
+            found = node->context;
+            free(node);
+            break;
+        }
+        current = &(*current)->next;
+    }
+    pthread_mutex_unlock(&g_streamContextsMutex);
+    return found;
+}
+
 // Body of the signer callback, run while holding a reference on jctx.
 static intptr_t java_signer_callback_invoke(JNIEnv *env, JavaSignerContext *jctx,
                                             const unsigned char *data, uintptr_t len,
@@ -1006,23 +1054,31 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIE
         free(ctx);
         return 0;
     }
-    
+
+    if (!register_stream_context((uintptr_t)stream, ctx)) {
+        c2pa_release_stream(stream);
+        (*env)->DeleteGlobalRef(env, ctx->streamObject);
+        free(ctx);
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to register stream context");
+        return 0;
+    }
+
     return (jlong)(uintptr_t)stream;
 }
 
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Stream_releaseStreamNative(JNIEnv *env, jobject obj, jlong streamPtr) {
     if (streamPtr != 0) {
-        struct C2paStream *stream = (struct C2paStream*)(uintptr_t)streamPtr;
-        // Free the Java context
-        JavaStreamContext *ctx = (JavaStreamContext*)stream->context;
+        uintptr_t handle = (uintptr_t)streamPtr;
+        JavaStreamContext *ctx = take_stream_context(handle);
+        // Release the stream before its context, so nothing in the core can
+        // reach a callback with a freed context.
+        c2pa_release_stream((struct C2paStream*)handle);
         if (ctx != NULL) {
             if (ctx->streamObject != NULL) {
                 (*env)->DeleteGlobalRef(env, ctx->streamObject);
             }
             free(ctx);
         }
-        // Release the stream
-        c2pa_release_stream(stream);
     }
 }
 
