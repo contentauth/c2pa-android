@@ -26,19 +26,29 @@ object C2PA {
     }
 
     /**
-     * Returns the version string of the C2PA library
+     * Returns the version string of the C2PA library.
+     *
+     * @throws C2PAError.Api if the version string cannot be retrieved
      */
     @JvmStatic
-    external fun version(): String
+    @Throws(C2PAError::class)
+    fun version(): String = versionNative()?.fromNativeUtf8()
+        ?: throw C2PAError.Api(getError() ?: "Failed to get C2PA version")
 
     /**
      * Returns the last error message, if any
      */
     @JvmStatic
-    external fun getError(): String?
+    fun getError(): String? = getErrorNative()?.fromNativeUtf8()
 
     @JvmStatic
-    private external fun loadSettingsNative(settings: String, format: String): Int
+    private external fun versionNative(): ByteArray?
+
+    @JvmStatic
+    private external fun getErrorNative(): ByteArray?
+
+    @JvmStatic
+    private external fun loadSettingsNative(settings: ByteArray, format: ByteArray): Int
 
     /**
      * Load settings from a string.
@@ -49,7 +59,9 @@ object C2PA {
             "in C2PASettings and build a C2PAContext instead.",
     )
     @JvmStatic
-    fun loadSettingsResult(settings: String, format: String): Int = loadSettingsNative(settings, format)
+    @Throws(C2PAError::class)
+    fun loadSettingsResult(settings: String, format: String): Int =
+        loadSettingsNative(settings.toNativeUtf8(), format.toNativeUtf8())
 
     /**
      * Load settings from a string
@@ -61,7 +73,7 @@ object C2PA {
     @Throws(C2PAError::class)
     fun loadSettings(settings: String, format: String) {
         executeC2PAOperation("Failed to load settings") {
-            val result = loadSettingsNative(settings, format)
+            val result = loadSettingsNative(settings.toNativeUtf8(), format.toNativeUtf8())
             if (result < 0) null else Unit
         }
     }
@@ -146,7 +158,7 @@ object C2PA {
     }
 
     @JvmStatic
-    private external fun ed25519SignNative(data: ByteArray, privateKey: String): ByteArray?
+    private external fun ed25519SignNative(data: ByteArray, privateKey: ByteArray): ByteArray?
 
     /**
      * Sign data using Ed25519
@@ -154,7 +166,7 @@ object C2PA {
     @Throws(C2PAError::class)
     fun ed25519Sign(data: ByteArray, privateKey: String): ByteArray =
         executeC2PAOperation("Failed to sign with Ed25519") {
-            ed25519SignNative(data, privateKey)
+            ed25519SignNative(data, privateKey.toNativeUtf8())
         }
 
     /**

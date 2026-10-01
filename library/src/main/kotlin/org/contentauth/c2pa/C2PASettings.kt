@@ -85,7 +85,7 @@ class C2PASettings internal constructor(internal var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun updateFromString(settingsStr: String, format: String): C2PASettings {
-        val result = updateFromStringNative(ptr, settingsStr, format)
+        val result = updateFromStringNative(ptr, settingsStr.toNativeUtf8(), format.toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to update settings from string")
         }
@@ -113,7 +113,7 @@ class C2PASettings internal constructor(internal var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun setValue(path: String, value: String): C2PASettings {
-        val result = setValueNative(ptr, path, value)
+        val result = setValueNative(ptr, path.toNativeUtf8(), value.toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to set settings value")
         }
@@ -128,6 +128,6 @@ class C2PASettings internal constructor(internal var ptr: Long) : Closeable {
     }
 
     private external fun free(handle: Long)
-    private external fun updateFromStringNative(handle: Long, settingsStr: String, format: String): Int
-    private external fun setValueNative(handle: Long, path: String, value: String): Int
+    private external fun updateFromStringNative(handle: Long, settingsStr: ByteArray, format: ByteArray): Int
+    private external fun setValueNative(handle: Long, path: ByteArray, value: ByteArray): Int
 }

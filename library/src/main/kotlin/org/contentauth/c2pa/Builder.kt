@@ -292,7 +292,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
          * @return The supported MIME types (e.g. "image/jpeg"), or an empty list if none
          */
         @JvmStatic
-        fun supportedMimeTypes(): List<String> = supportedMimeTypesNative()?.toList() ?: emptyList()
+        fun supportedMimeTypes(): List<String> =
+            supportedMimeTypesNative()?.mapNotNull { it?.fromNativeUtf8() } ?: emptyList()
 
         /**
          * Wraps raw manifest bytes into a format-specific embeddable block.
@@ -308,15 +309,15 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         @JvmStatic
         @Throws(C2PAError::class)
         fun formatEmbeddable(format: String, manifestBytes: ByteArray): ByteArray =
-            formatEmbeddableNative(format, manifestBytes)
+            formatEmbeddableNative(format.toNativeUtf8(), manifestBytes)
                 ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to format embeddable manifest")
 
         @JvmStatic private external fun nativeFromArchive(streamHandle: Long): Long
 
         @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
 
-        @JvmStatic private external fun supportedMimeTypesNative(): Array<String>?
-        @JvmStatic private external fun formatEmbeddableNative(format: String, manifestData: ByteArray): ByteArray?
+        @JvmStatic private external fun supportedMimeTypesNative(): Array<ByteArray?>?
+        @JvmStatic private external fun formatEmbeddableNative(format: ByteArray, manifestData: ByteArray): ByteArray?
     }
 
     /**
@@ -333,7 +334,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun withDefinition(manifestJSON: String): Builder {
-        val newPtr = withDefinitionNative(ptr, manifestJSON)
+        val newPtr = withDefinitionNative(ptr, manifestJSON.toNativeUtf8())
         if (newPtr == 0L) {
             ptr = 0
             throw C2PAError.Api(C2PA.getError() ?: "Failed to set builder definition")
@@ -416,7 +417,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun addAction(action: Action): Builder {
-        val result = addActionNative(ptr, action.toJson())
+        val result = addActionNative(ptr, action.toJson().toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to add action")
         }
@@ -442,7 +443,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun setRemoteURL(url: String): Builder {
-        val result = setRemoteUrlNative(ptr, url)
+        val result = setRemoteUrlNative(ptr, url.toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to set remote URL")
         }
@@ -461,7 +462,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun setBasePath(path: String): Builder {
-        val result = setBasePathNative(ptr, path)
+        val result = setBasePathNative(ptr, path.toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to set base path")
         }
@@ -478,7 +479,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun addResource(uri: String, stream: Stream): Builder {
-        val result = addResourceNative(ptr, uri, stream.rawPtr)
+        val result = addResourceNative(ptr, uri.toNativeUtf8(), stream.rawPtr)
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to add resource")
         }
@@ -496,7 +497,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun addIngredient(ingredientJSON: String, format: String, source: Stream): Builder {
-        val result = addIngredientFromStreamNative(ptr, ingredientJSON, format, source.rawPtr)
+        val result =
+            addIngredientFromStreamNative(ptr, ingredientJSON.toNativeUtf8(), format.toNativeUtf8(), source.rawPtr)
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to add ingredient")
         }
@@ -556,7 +558,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun writeIngredientArchive(ingredientId: String, dest: Stream) {
-        val result = writeIngredientArchiveNative(ptr, ingredientId, dest.rawPtr)
+        val result = writeIngredientArchiveNative(ptr, ingredientId.toNativeUtf8(), dest.rawPtr)
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to write ingredient archive")
         }
@@ -578,7 +580,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun sign(format: String, source: Stream, dest: Stream, signer: Signer): SignResult =
-        signNative(ptr, format, source.rawPtr, dest.rawPtr, signer.ptr)
+        signNative(ptr, format.toNativeUtf8(), source.rawPtr, dest.rawPtr, signer.ptr)
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign")
 
     /**
@@ -599,7 +601,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun signWithContext(format: String, source: Stream, dest: Stream): SignResult =
-        signWithContextNative(ptr, format, source.rawPtr, dest.rawPtr)
+        signWithContextNative(ptr, format.toNativeUtf8(), source.rawPtr, dest.rawPtr)
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign with context")
 
     /**
@@ -618,7 +620,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun dataHashedPlaceholder(reservedSize: Long, format: String): ByteArray {
-        val result = dataHashedPlaceholderNative(ptr, reservedSize, format)
+        val result = dataHashedPlaceholderNative(ptr, reservedSize, format.toNativeUtf8())
         if (result == null) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to create placeholder")
         }
@@ -647,8 +649,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
             signDataHashedEmbeddableNative(
                 ptr,
                 signer.ptr,
-                dataHash,
-                format,
+                dataHash.toNativeUtf8(),
+                format.toNativeUtf8(),
                 asset?.rawPtr ?: 0L,
             )
         if (result == null) {
@@ -669,7 +671,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun signEmbeddable(format: String): ByteArray =
-        signEmbeddableNative(ptr, format)
+        signEmbeddableNative(ptr, format.toNativeUtf8())
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign embeddable")
 
     /**
@@ -684,7 +686,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun placeholder(format: String): ByteArray =
-        placeholderNative(ptr, format)
+        placeholderNative(ptr, format.toNativeUtf8())
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to create placeholder")
 
     /**
@@ -696,7 +698,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun needsPlaceholder(format: String): Boolean {
-        val result = needsPlaceholderNative(ptr, format)
+        val result = needsPlaceholderNative(ptr, format.toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to determine placeholder requirement")
         }
@@ -779,7 +781,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun updateHashFromStream(format: String, stream: Stream): Builder {
-        val result = updateHashFromStreamNative(ptr, format, stream.rawPtr)
+        val result = updateHashFromStreamNative(ptr, format.toNativeUtf8(), stream.rawPtr)
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to update hash from stream")
         }
@@ -795,7 +797,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      */
     @Throws(C2PAError::class)
     fun hashType(format: String): HashType {
-        val result = hashTypeNative(ptr, format)
+        val result = hashTypeNative(ptr, format.toNativeUtf8())
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to determine hash type")
         }
@@ -810,50 +812,50 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     }
 
     private external fun free(handle: Long)
-    private external fun withDefinitionNative(handle: Long, manifestJson: String): Long
+    private external fun withDefinitionNative(handle: Long, manifestJson: ByteArray): Long
     private external fun withArchiveNative(handle: Long, streamHandle: Long): Long
     private external fun setIntentNative(handle: Long, intent: Int, digitalSourceType: Int): Int
-    private external fun addActionNative(handle: Long, actionJson: String): Int
+    private external fun addActionNative(handle: Long, actionJson: ByteArray): Int
     private external fun setNoEmbedNative(handle: Long)
-    private external fun setRemoteUrlNative(handle: Long, remoteUrl: String): Int
-    private external fun setBasePathNative(handle: Long, basePath: String): Int
-    private external fun addResourceNative(handle: Long, uri: String, streamHandle: Long): Int
+    private external fun setRemoteUrlNative(handle: Long, remoteUrl: ByteArray): Int
+    private external fun setBasePathNative(handle: Long, basePath: ByteArray): Int
+    private external fun addResourceNative(handle: Long, uri: ByteArray, streamHandle: Long): Int
     private external fun addIngredientFromStreamNative(
         handle: Long,
-        ingredientJson: String,
-        format: String,
+        ingredientJson: ByteArray,
+        format: ByteArray,
         sourceHandle: Long,
     ): Int
     private external fun toArchiveNative(handle: Long, streamHandle: Long): Int
     private external fun addIngredientFromArchiveNative(handle: Long, streamHandle: Long): Int
-    private external fun writeIngredientArchiveNative(handle: Long, ingredientId: String, streamHandle: Long): Int
+    private external fun writeIngredientArchiveNative(handle: Long, ingredientId: ByteArray, streamHandle: Long): Int
     private external fun signNative(
         handle: Long,
-        format: String,
+        format: ByteArray,
         sourceHandle: Long,
         destHandle: Long,
         signerHandle: Long,
     ): SignResult?
     private external fun signWithContextNative(
         handle: Long,
-        format: String,
+        format: ByteArray,
         sourceHandle: Long,
         destHandle: Long,
     ): SignResult?
-    private external fun dataHashedPlaceholderNative(handle: Long, reservedSize: Long, format: String): ByteArray?
+    private external fun dataHashedPlaceholderNative(handle: Long, reservedSize: Long, format: ByteArray): ByteArray?
     private external fun signDataHashedEmbeddableNative(
         handle: Long,
         signerHandle: Long,
-        dataHash: String,
-        format: String,
+        dataHash: ByteArray,
+        format: ByteArray,
         assetHandle: Long,
     ): ByteArray?
-    private external fun signEmbeddableNative(handle: Long, format: String): ByteArray?
-    private external fun placeholderNative(handle: Long, format: String): ByteArray?
-    private external fun needsPlaceholderNative(handle: Long, format: String): Int
+    private external fun signEmbeddableNative(handle: Long, format: ByteArray): ByteArray?
+    private external fun placeholderNative(handle: Long, format: ByteArray): ByteArray?
+    private external fun needsPlaceholderNative(handle: Long, format: ByteArray): Int
     private external fun setDataHashExclusionsNative(handle: Long, exclusions: LongArray): Int
     private external fun setFixedSizeMerkleNative(handle: Long, fixedSizeKb: Long): Int
     private external fun hashMdatBytesNative(handle: Long, mdatId: Long, data: ByteArray, largeSize: Boolean): Int
-    private external fun updateHashFromStreamNative(handle: Long, format: String, streamHandle: Long): Int
-    private external fun hashTypeNative(handle: Long, format: String): Int
+    private external fun updateHashFromStreamNative(handle: Long, format: ByteArray, streamHandle: Long): Int
+    private external fun hashTypeNative(handle: Long, format: ByteArray): Int
 }

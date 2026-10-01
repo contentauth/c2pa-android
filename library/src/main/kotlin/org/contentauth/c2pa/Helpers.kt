@@ -48,6 +48,26 @@ internal inline fun <T : Any> executeC2PAOperation(errorMessage: String, operati
  * @param componentLength The length of each component (r and s) in bytes
  * @return Raw signature as concatenated r and s components
  */
+/**
+ * Encodes this string as standard UTF-8 for a native call.
+ *
+ * Strings cross the JNI boundary as UTF-8 bytes encoded here rather than through JNI's own string
+ * functions, which use modified UTF-8 and mangle supplementary-plane characters such as emoji. An
+ * unpaired surrogate is encoded as `?`.
+ *
+ * @throws C2PAError.Api if the string contains U+0000, which would truncate the native C string
+ */
+@Throws(C2PAError::class)
+internal fun String.toNativeUtf8(): ByteArray {
+    if (indexOf('\u0000') >= 0) {
+        throw C2PAError.Api("String must not contain U+0000")
+    }
+    return toByteArray(Charsets.UTF_8)
+}
+
+/** Decodes a UTF-8 string returned by a native call. */
+internal fun ByteArray.fromNativeUtf8(): String = String(this, Charsets.UTF_8)
+
 fun derToRawSignature(derSignature: ByteArray, componentLength: Int): ByteArray {
     var offset = 0
 
