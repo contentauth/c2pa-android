@@ -211,27 +211,138 @@ static void throw_checked(JNIEnv *env, const char *className, const char *messag
     (*env)->DeleteLocalRef(env, cls);
 }
 
-// Helper function to convert jstring to C string with null checking
+// String bridging transcodes through UTF-16 (GetStringChars/NewString) with the
+// UTF-8 conversion done here, because GetStringUTFChars/NewStringUTF operate in
+// JNI *modified* UTF-8: supplementary-plane characters (e.g. emoji in a manifest
+// title) become CESU-8 surrogate pairs the Rust FFI rejects, and NewStringUTF on
+// a genuine 4-byte UTF-8 sequence is undefined behavior. Malformed input maps to
+// U+FFFD in both directions.
+
+// Converts a jstring to a NUL-terminated, malloc-allocated standard UTF-8 string.
+// Release with release_cstring. Returns NULL with an exception pending if the
+// string contains U+0000 or the conversion cannot be allocated.
 static const char* jstring_to_cstring(JNIEnv *env, jstring jstr) {
     if (jstr == NULL) return NULL;
-    const char* cstr = (*env)->GetStringUTFChars(env, jstr, NULL);
-    if (cstr == NULL) {
+
+    jsize ulen = (*env)->GetStringLength(env, jstr);
+    const jchar *chars = (*env)->GetStringChars(env, jstr, NULL);
+    if (chars == NULL) {
         check_exception(env);
+        return NULL;
     }
-    return cstr;
+
+    // Worst case is 3 bytes per UTF-16 code unit (a surrogate pair emits 4 bytes
+    // for its 2 units, and U+FFFD replacements emit 3).
+    char *out = (char*)malloc((size_t)ulen * 3 + 1);
+    if (out == NULL) {
+        (*env)->ReleaseStringChars(env, jstr, chars);
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate UTF-8 buffer");
+        return NULL;
+    }
+
+    size_t o = 0;
+    for (jsize i = 0; i < ulen; i++) {
+        uint32_t cp = chars[i];
+        if (cp == 0) {
+            // The result is a NUL-terminated C string, so an embedded U+0000
+            // would silently truncate it. Reject it rather than hand the core
+            // a shorter string than the caller passed.
+            free(out);
+            (*env)->ReleaseStringChars(env, jstr, chars);
+            throw_checked(env, "java/lang/IllegalArgumentException", "String must not contain U+0000");
+            return NULL;
+        }
+        if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < ulen &&
+            chars[i + 1] >= 0xDC00 && chars[i + 1] <= 0xDFFF) {
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (chars[i + 1] - 0xDC00);
+            i++;
+        } else if (cp >= 0xD800 && cp <= 0xDFFF) {
+            cp = 0xFFFD;  // Unpaired surrogate
+        }
+
+        if (cp < 0x80) {
+            out[o++] = (char)cp;
+        } else if (cp < 0x800) {
+            out[o++] = (char)(0xC0 | (cp >> 6));
+            out[o++] = (char)(0x80 | (cp & 0x3F));
+        } else if (cp < 0x10000) {
+            out[o++] = (char)(0xE0 | (cp >> 12));
+            out[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[o++] = (char)(0x80 | (cp & 0x3F));
+        } else {
+            out[o++] = (char)(0xF0 | (cp >> 18));
+            out[o++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+            out[o++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+            out[o++] = (char)(0x80 | (cp & 0x3F));
+        }
+    }
+    out[o] = '\0';
+
+    (*env)->ReleaseStringChars(env, jstr, chars);
+    return out;
 }
 
-// Helper function to release C string from jstring
+// Frees a string produced by jstring_to_cstring. The env and jstr parameters
+// are unused now that the buffer is malloc'd rather than pinned; they are kept
+// so the many call sites keep their release-what-you-converted shape.
 static void release_cstring(JNIEnv *env, jstring jstr, const char* cstr) {
-    if (jstr != NULL && cstr != NULL) {
-        (*env)->ReleaseStringUTFChars(env, jstr, cstr);
-    }
+    (void)env;
+    (void)jstr;
+    free((void*)cstr);
 }
 
-// Helper function to convert C string to jstring with null checking
+// Converts a NUL-terminated standard UTF-8 string to a jstring.
 static jstring cstring_to_jstring(JNIEnv *env, const char* cstr) {
     if (cstr == NULL) return NULL;
-    jstring jstr = (*env)->NewStringUTF(env, cstr);
+
+    size_t blen = strlen(cstr);
+    // A UTF-16 unit consumes at least one input byte, so blen units suffice.
+    jchar *units = (jchar*)malloc((blen > 0 ? blen : 1) * sizeof(jchar));
+    if (units == NULL) {
+        throw_checked(env, "java/lang/OutOfMemoryError", "Failed to allocate UTF-16 buffer");
+        return NULL;
+    }
+
+    const unsigned char *in = (const unsigned char*)cstr;
+    size_t i = 0;
+    jsize o = 0;
+    while (i < blen) {
+        uint32_t cp;
+        unsigned char b = in[i];
+        if (b < 0x80) {
+            cp = b;
+            i += 1;
+        } else if ((b & 0xE0) == 0xC0 && i + 1 < blen && (in[i + 1] & 0xC0) == 0x80) {
+            cp = ((uint32_t)(b & 0x1F) << 6) | (in[i + 1] & 0x3F);
+            i += 2;
+            if (cp < 0x80) cp = 0xFFFD;  // Overlong
+        } else if ((b & 0xF0) == 0xE0 && i + 2 < blen &&
+                   (in[i + 1] & 0xC0) == 0x80 && (in[i + 2] & 0xC0) == 0x80) {
+            cp = ((uint32_t)(b & 0x0F) << 12) | ((uint32_t)(in[i + 1] & 0x3F) << 6) | (in[i + 2] & 0x3F);
+            i += 3;
+            if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) cp = 0xFFFD;  // Overlong or surrogate
+        } else if ((b & 0xF8) == 0xF0 && i + 3 < blen &&
+                   (in[i + 1] & 0xC0) == 0x80 && (in[i + 2] & 0xC0) == 0x80 && (in[i + 3] & 0xC0) == 0x80) {
+            cp = ((uint32_t)(b & 0x07) << 18) | ((uint32_t)(in[i + 1] & 0x3F) << 12) |
+                 ((uint32_t)(in[i + 2] & 0x3F) << 6) | (in[i + 3] & 0x3F);
+            i += 4;
+            if (cp < 0x10000 || cp > 0x10FFFF) cp = 0xFFFD;  // Overlong or out of range
+        } else {
+            cp = 0xFFFD;  // Invalid lead byte or truncated sequence
+            i += 1;
+        }
+
+        if (cp >= 0x10000) {
+            cp -= 0x10000;
+            units[o++] = (jchar)(0xD800 + (cp >> 10));
+            units[o++] = (jchar)(0xDC00 + (cp & 0x3FF));
+        } else {
+            units[o++] = (jchar)cp;
+        }
+    }
+
+    jstring jstr = (*env)->NewString(env, units, o);
+    free(units);
     if (jstr == NULL) {
         check_exception(env);
     }
@@ -2121,16 +2232,16 @@ static int build_cstring_array(JNIEnv *env, jobjectArray jarray, const char ***o
             throw_checked(env, "java/lang/IllegalArgumentException", "Array element cannot be null");
             return -1;
         }
+        // jstring_to_cstring returns a malloc'd buffer, so the array takes
+        // ownership directly; release_cstring_array frees each element.
         const char *cs = jstring_to_cstring(env, js);
-        char *copy = cs != NULL ? strdup(cs) : NULL;
-        release_cstring(env, js, cs);
         (*env)->DeleteLocalRef(env, js);
-        if (copy == NULL) {
+        if (cs == NULL) {
+            // Conversion failed with its exception already pending.
             release_cstring_array(arr, len);
-            throw_checked(env, "java/lang/OutOfMemoryError", "Failed to copy array element");
             return -1;
         }
-        arr[i] = copy;
+        arr[i] = cs;
     }
     *out_array = arr;
     *out_len = len;
