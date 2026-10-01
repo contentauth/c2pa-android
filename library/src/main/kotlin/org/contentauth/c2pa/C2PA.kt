@@ -25,11 +25,18 @@ object C2PA {
         loadC2PALibraries()
     }
 
+    @JvmStatic
+    private external fun versionNative(): String?
+
     /**
-     * Returns the version string of the C2PA library
+     * Returns the version string of the C2PA library.
+     *
+     * @throws C2PAError.Api if the version string cannot be retrieved
      */
     @JvmStatic
-    external fun version(): String
+    @Throws(C2PAError::class)
+    fun version(): String = versionNative()
+        ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to get C2PA version")
 
     /**
      * Returns the last error message, if any
