@@ -919,9 +919,9 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIE
     );
     
     if (stream == NULL) {
+        // Sentinel return; the Kotlin constructor raises C2PAError from c2pa_error().
         (*env)->DeleteGlobalRef(env, ctx->streamObject);
         free(ctx);
-        throw_checked(env, "java/lang/RuntimeException", "Failed to create C2PA stream");
         return 0;
     }
     
