@@ -104,7 +104,14 @@ jobs:
           force-avd-creation: false
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: make tests-with-server
+          # The emulator's crashpad_handler child can outlive `adb emu kill`.
+          # It holds the action's stdio, so the step then sits idle until the
+          # timeout with every test passed (seen on the API 28 x86 leg;
+          # ReactiveCircus/android-emulator-runner#385). Stop it once the tests
+          # are done. This stays one line because the action runs each line as
+          # its own `sh -c` and stops at the first failure, and the bracket
+          # keeps `pkill -f` from matching this script's own shell.
+          script: make tests-with-server; rc=$?; pkill -INT -f '[c]rashpad_handler' || true; exit $rc
 
       - name: Upload test results
         if: always()
