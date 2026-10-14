@@ -7,10 +7,20 @@ on:
         description: 'Version for the release (e.g. 1.0.0 or 1.0.0-beta.1)'
         required: true
         type: string
+      publish:
+        description: 'Publish release immediately (false = draft for review)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+      attestations: write
+      packages: write
 
     steps:
     - name: Checkout repository
@@ -24,6 +34,13 @@ jobs:
           exit 1
         fi
     
+    - name: Check tag is unused
+      run: |
+        if git ls-remote --exit-code --tags origin "refs/tags/${{ github.event.inputs.version }}" > /dev/null; then
+          echo "::error::Tag ${{ github.event.inputs.version }} already exists"
+          exit 1
+        fi
+
     - name: Configure Git user
       run: |
         git config user.name "GitHub Actions"
@@ -37,18 +54,19 @@ jobs:
         echo "Previous tag: $PREV_TAG"
         echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
-    - name: Create tag
-      run: |
-        git tag ${{ github.event.inputs.version }}
-        git push origin ${{ github.event.inputs.version }}
-
     - name: Display release information
       run: |
         echo "Starting release process for version ${{ github.event.inputs.version }}"
         echo "This workflow will:"
         echo "1. Download pre-built Android libraries"
         echo "2. Build the Android AAR"
-        echo "3. Create a GitHub release with artifacts"
+        echo "3. Generate SBOM and build attestations"
+        echo "4. Create a GitHub release with artifacts"
+        if [[ "${{ github.event.inputs.publish }}" == "true" ]]; then
+          echo "5. Publish release immediately"
+        else
+          echo "5. Create as DRAFT for review before publishing"
+        fi
 
     - name: Resolve JDK version
       id: java
@@ -86,6 +104,31 @@ jobs:
         echo "Built AAR files:"
         find library/build/outputs/aar -name "*.aar" -type f
 
+    - name: Generate SBOM
+      env:
+        JAVA_HOME: ${{ steps.setup-java.outputs.path }}
+        CI_COMMIT_TAG: ${{ github.event.inputs.version }}
+      run: |
+        ./gradlew :library:cyclonedxDirectBom
+
+    - name: Attest build provenance
+      uses: actions/attest@v4
+      with:
+        subject-path: 'library/build/outputs/aar/*.aar'
+
+    - name: Attest SBOM
+      uses: actions/attest@v4
+      with:
+        subject-path: 'library/build/outputs/aar/*.aar'
+        sbom-path: 'library/build/reports/sbom.json'
+
+    # Everything above can fail without leaving anything behind. The tag is pushed only once the
+    # AAR is built and attested, so a broken build cannot use up a version.
+    - name: Create tag
+      run: |
+        git tag ${{ github.event.inputs.version }}
+        git push origin ${{ github.event.inputs.version }}
+
     - name: Publish to GitHub Packages
       env:
         JAVA_HOME: ${{ steps.setup-java.outputs.path }}
@@ -99,6 +142,7 @@ jobs:
       with:
         tag_name: ${{ github.event.inputs.version }}
         name: C2PA Android ${{ github.event.inputs.version }}
+        draft: ${{ github.event.inputs.publish != 'true' }}
         files: |
           library/build/outputs/aar/*.aar
         body: |
@@ -154,3 +198,30 @@ jobs:
           See the [commit history](https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ github.event.inputs.version }}) for a full list of changes.
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Release summary
+      run: |
+        {
+          echo "## Release Summary"
+          echo ""
+          echo "**Version**: ${{ github.event.inputs.version }}"
+          echo "**Status**: ${{ github.event.inputs.publish == 'true' && 'Published' || 'Draft (requires manual publish)' }}"
+          echo ""
+          echo "### Attestations"
+          echo "- Build provenance: Created"
+          echo "- SBOM: Created"
+          echo ""
+          echo "### Verify attestations"
+          echo "\`\`\`bash"
+          echo "gh attestation verify <path-to-aar> --repo ${{ github.repository }}"
+          echo "\`\`\`"
+          if [[ "${{ github.event.inputs.publish }}" != "true" ]]; then
+            echo ""
+            echo "### Next steps"
+            echo "1. Review the [draft release](https://github.com/${{ github.repository }}/releases)"
+            echo "2. Verify attestations are attached"
+            echo "3. Click **Publish release** when ready"
+            echo ""
+            echo "> **Note**: Once published with immutable releases enabled, the release cannot be modified."
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
