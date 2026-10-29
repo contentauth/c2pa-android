@@ -106,6 +106,21 @@ render_docs() {
   cp "$ROOT/.github/scripts/doc-version-selector.js" "$ROOT/.github/scripts/doc-version-selector.css" "$output/"
 }
 
+verify_site() {
+  local site="$1" default="$2" tag page
+  shift 2
+  for tag in "$@"; do
+    for page in index.html "$PACKAGE_INDEX"; do
+      [[ -f "$site/versions/$tag/$page" ]] || { fail "The site is missing the $tag page $page."; return 1; }
+    done
+  done
+  for page in index.html "$PACKAGE_INDEX"; do
+    grep -Fq "data-version=\"$default\"" "$site/$page" || {
+      fail "The default documentation at $page is not $default."; return 1;
+    }
+  done
+}
+
 build_site() (
   set -euo pipefail
   local versions=() tag versions_json workspace output stage default_docs=""
@@ -128,11 +143,10 @@ build_site() (
   render_docs "$default_docs" "$workspace/default" "${versions[0]}" "$versions_json" ""
   cp -R "$workspace/default/." "$workspace/site/"
   touch "$workspace/site/.nojekyll"
+  verify_site "$workspace/site" "${versions[0]}" "${versions[@]}"
   if [[ -e "$output" ]]; then mv "$output" "$workspace/previous"; fi
   mv "$workspace/site" "$output"
   printf 'Versioned Dokka documentation generated at: %s\n' "$output"
 )
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  build_site
-fi
+build_site

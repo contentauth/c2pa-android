@@ -110,9 +110,10 @@ removed after success or failure, and existing versioned output is replaced only
 after all selected releases build successfully.
 
 The existing `make docs` command still generates working-tree documentation in
-`build/docs/`; it does not replace the versioned site. Run `make docs-test` to test
-the versioning tooling (Bash 3.2+, `jq`, and Git; no Python, Android SDK, or JDK
-required for these unit tests).
+`build/docs/`; it does not replace the versioned site. `make docs-versioned` fails
+if a release has no library or package landing page, a page has no head element
+or version slot to carry the selector, or the assembled site's root is not the
+default version, so the real build is the test.
 
 ### Maintaining versions
 
