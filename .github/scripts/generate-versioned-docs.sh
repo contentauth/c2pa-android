@@ -48,12 +48,9 @@ build_docs() {
 
 render_docs() {
   local source="$1" output="$2" tag="$3" versions="$4" prefix="$5"
-  local page relative directory assets additions escaped_tag escaped_versions escaped_prefix
+  local page relative directory assets additions
   mkdir -p "$output"
   cp -R "$source/." "$output/"
-  escaped_tag="$(printf '%s' "$tag" | jq -Rr '@html')"
-  escaped_versions="$(printf '%s' "$versions" | jq -Rr '@html')"
-  escaped_prefix="$(printf '%s' "$prefix" | jq -Rr '@html')"
   find "$output" -type f -name '*.html' -print0 > "$output.pages"
   while IFS= read -r -d '' page; do
     relative="${page#"$output/"}"
@@ -65,7 +62,7 @@ render_docs() {
       directory="${directory#*/}"
     done
     additions="<link rel=\"stylesheet\" href=\"${assets}doc-version-selector.css\">
-<script defer src=\"${assets}doc-version-selector.js\" data-version=\"$escaped_tag\" data-versions=\"$escaped_versions\" data-prefix=\"$escaped_prefix\"></script>"
+<script defer src=\"${assets}doc-version-selector.js\" data-version=\"$tag\" data-versions=\"$versions\" data-prefix=\"$prefix\"></script>"
     DOC_VERSION_ADDITIONS="$additions" awk '
       BEGIN { additions = ENVIRON["DOC_VERSION_ADDITIONS"] }
       {
@@ -101,14 +98,13 @@ verify_site() {
 
 build_site() (
   set -euo pipefail
-  local versions=() tag versions_json workspace output stage default_docs=""
+  local versions=() tag workspace output stage default_docs=""
   mkdir -p "$ROOT/build"
   output="$ROOT/build/docs-versioned"
   workspace="$(mktemp -d "$ROOT/build/versioned-docs-XXXXXX")"
   trap 'status=$?; if [[ -d "$workspace/previous" && ! -e "$output" ]]; then mv "$workspace/previous" "$output" || status=1; fi; rm -rf -- "$workspace"; exit "$status"' EXIT
   load_versions "$ROOT/docs/versions.json" > "$workspace/versions"
   while IFS= read -r tag; do versions+=("$tag"); done < "$workspace/versions"
-  versions_json="$(jq -c '.versions' "$ROOT/docs/versions.json")"
   for tag in "${versions[@]}"; do verify_release "$tag"; done
   for tag in "${versions[@]}"; do
     stage="$workspace/$tag"
@@ -116,9 +112,9 @@ build_site() (
     export_release "$ROOT" "$tag" "$stage"
     build_docs "$stage"
     [[ "$tag" != "${versions[0]}" ]] || default_docs="$stage/build/docs"
-    render_docs "$stage/build/docs" "$workspace/site/versions/$tag" "$tag" "$versions_json" "versions/$tag"
+    render_docs "$stage/build/docs" "$workspace/site/versions/$tag" "$tag" "${versions[*]}" "versions/$tag"
   done
-  render_docs "$default_docs" "$workspace/default" "${versions[0]}" "$versions_json" ""
+  render_docs "$default_docs" "$workspace/default" "${versions[0]}" "${versions[*]}" ""
   cp -R "$workspace/default/." "$workspace/site/"
   touch "$workspace/site/.nojekyll"
   verify_site "$workspace/site" "${versions[0]}" "${versions[@]}"
