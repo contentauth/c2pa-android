@@ -40,7 +40,6 @@ The information in this page is primarily for those who wish to contribute to th
    ls -la library/build/outputs/aar/
    ```
 
-
 ## Testing
 
 Instrumented tests validate C2PA functionality through the JNI bridge.
@@ -106,3 +105,46 @@ The release process is automated through a single workflow:
    - Attach the Android AAR artifact.
    - Publish documentation for integration.
 
+## Building documentation locally
+
+To build the selected releases, install Bash 3.2 or newer, `jq`, Git, the GitHub CLI
+(`gh`), and the JDK and Android SDK required by those releases. Authenticate `gh`
+or set `GH_TOKEN` to a token with read access to the repository, then run:
+
+```bash
+git fetch origin --tags
+make docs-versioned
+```
+
+The output is `build/docs-versioned/`, containing the default site and
+`versions/<tag>/` for every configured release, including the default.
+All documentation and selector links are relative, so this directory can be
+served over HTTP locally or hosted under `/c2pa-android/` on GitHub Pages.
+
+The builder verifies that each tag is a published GitHub release, exports its
+sources to a temporary workspace, and runs that release's own `make docs`, so
+each release builds with the recipe it shipped with. All releases build with the
+one JDK the workflow selects, which must therefore still build the oldest listed
+release. It preserves executable permissions on the Gradle wrapper and
+does not pass `GH_TOKEN` or `GITHUB_TOKEN` to Gradle. Release builds execute the
+tagged Gradle scripts, so only add trusted release tags. Temporary workspaces are
+removed after success or failure, and existing versioned output is replaced only
+after all selected releases build successfully.
+
+The existing `make docs` command still generates working-tree documentation in
+`build/docs/`; it does not replace the versioned site. `make docs-versioned` fails
+if a release has no library or package landing page, a page has no head element
+or version slot to carry the selector, or the assembled site's root is not the
+default version, so the real build is the test.
+
+### Maintaining versions
+
+The release workflow puts each stable release first in
+[docs/versions.json](docs/versions.json), commits that to the release branch
+before tagging, and then rebuilds and deploys the site with that release as the
+default. It calls the documentation workflow explicitly, because events created
+with `GITHUB_TOKEN` do not trigger other workflows. Pre-releases are not added
+and do not rebuild the site. To document another release or change the default,
+edit the list and keep the default first. The documentation workflow also
+deploys on relevant changes to `main` and manual dispatch, and validates pull
+requests without deploying them.
