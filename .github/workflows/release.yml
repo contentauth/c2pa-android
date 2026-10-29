@@ -11,6 +11,8 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    outputs:
+      is_prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
 
     steps:
     - name: Checkout repository
@@ -23,7 +25,18 @@ jobs:
           echo "::error::Version must be in format X.Y.Z or X.Y.Z-suffix.N (e.g., 1.0.0 or 1.0.0-beta.1)"
           exit 1
         fi
-    
+
+    - name: Detect pre-release
+      id: prerelease
+      run: |
+        if [[ "${{ github.event.inputs.version }}" == *-* ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          echo "Detected pre-release version"
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          echo "Detected stable release version"
+        fi
+
     - name: Configure Git user
       run: |
         git config user.name "GitHub Actions"
@@ -155,9 +168,11 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Pre-releases are not added to docs/versions.json, so there is nothing new to publish.
   publish-docs:
     name: Publish versioned API documentation
     needs: build-and-release
+    if: needs.build-and-release.outputs.is_prerelease == 'false'
     permissions:
       contents: read
       pages: write
