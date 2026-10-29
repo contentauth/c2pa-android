@@ -1,18 +1,31 @@
 name: Documentation
 
 on:
+  release:
+    types: [published]
   push:
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+    branches: [main]
+    paths:
+      - "docs/versions.json"
+      - ".github/scripts/*doc*"
+      - ".github/workflows/docs.yml"
+      - ".github/workflows/release.yml"
+      - "Makefile"
+  pull_request:
+    paths:
+      - "docs/versions.json"
+      - ".github/scripts/*doc*"
+      - ".github/workflows/docs.yml"
+      - ".github/workflows/release.yml"
+      - "Makefile"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: "pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}"
   cancel-in-progress: false
 
 jobs:
@@ -21,6 +34,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && 'main' || github.ref }}
+          filter: tree:0
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Check documentation tooling
+        run: bash --version && jq --version
 
       - name: Resolve JDK version
         id: java
@@ -45,16 +70,25 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      - name: Build Documentation
-        run: make docs
+      - name: Test documentation tooling
+        run: make docs-test
+
+      - name: Build versioned documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make docs-versioned
 
       - name: Upload Documentation Artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: ./build/docs
+          path: ./build/docs-versioned
 
   deploy:
     name: Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    permissions:
+      pages: write
+      id-token: write
     needs: build-docs
     runs-on: ubuntu-latest
     environment:

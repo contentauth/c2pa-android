@@ -1,0 +1,27 @@
+#c2pa-doc-version-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+#c2pa-doc-version-selector select {
+    max-width: 10rem;
+    padding: 0.25rem;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+}
+
+#c2pa-doc-version-selector option {
+    color: CanvasText;
+    background: Canvas;
+}
+
+@media print {
+    #c2pa-doc-version-selector {
+        display: none;
+    }
+}

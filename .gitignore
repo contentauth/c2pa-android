@@ -36,6 +36,7 @@ library/src/main/jni/c2pa.h
 
 # Generated files
 *.aar
+__pycache__/
 
 # OS files
 .DS_Store

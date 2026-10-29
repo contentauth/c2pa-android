@@ -1,6 +1,6 @@
 .PHONY: all clean setup library publish download-binaries tests coverage help test-app example-app \
         run-test-app run-example-app signing-server-start signing-server-stop signing-server-status \
-        signing-server-build tests-with-server lint format docs docs-clean
+        signing-server-build tests-with-server lint format docs docs-clean docs-versioned docs-test
 
 # Optional. Build the native libraries from archives in this directory instead of
 # downloading them from a c2pa-rs release. Expects the four
@@ -101,7 +101,15 @@ docs:
 	@echo "Output: build/docs/index.html"
 	@echo "To view: open build/docs/index.html"
 
-# Clean generated documentation
+# Generate API documentation from selected published releases
+docs-versioned:
+	bash .github/scripts/generate-versioned-docs.sh
+
+docs-test:
+	bash .github/scripts/test-versioned-docs.sh
+	node --test .github/scripts/test-doc-version-selector.cjs
+
+# Clean generated working-tree documentation
 docs-clean:
 	@echo "Cleaning generated documentation..."
 	@rm -rf build/docs
@@ -243,6 +251,12 @@ help:
 	@echo ""
 	@echo "Publishing:"
 	@echo "  publish               - Publish library to GitHub packages"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  docs                  - Generate API docs from the working tree"
+	@echo "  docs-versioned        - Generate default and versioned docs from published releases"
+	@echo "  docs-test             - Test the documentation build tooling and version selector"
+	@echo "  docs-clean            - Clean generated working-tree documentation"
 	@echo ""
 	@echo "Usage examples:"
 	@echo "  make tests            - Run all tests (start server first if testing hardware signing)"
