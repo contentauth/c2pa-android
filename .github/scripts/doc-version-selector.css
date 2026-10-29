@@ -20,6 +20,14 @@
     background: Canvas;
 }
 
+/* Below Dokka's 900px breakpoint the version slot starts its own header row at the
+   left edge, so line it up with the library logo in the row above. */
+@media (max-width: 899px) {
+    #c2pa-doc-version-selector {
+        padding-left: 12px;
+    }
+}
+
 @media print {
     #c2pa-doc-version-selector {
         display: none;
