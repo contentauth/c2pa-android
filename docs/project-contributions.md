@@ -140,7 +140,7 @@ default version, so the real build is the test.
 ### Maintaining versions
 
 The release workflow puts each stable release first in
-[docs/versions.json](docs/versions.json), commits that to the release branch
+[docs/versions.json](versions.json), commits that to the release branch
 before tagging, and then rebuilds and deploys the site with that release as the
 default. It calls the documentation workflow explicitly, because events created
 with `GITHUB_TOKEN` do not trigger other workflows. Pre-releases are not added
