@@ -40,9 +40,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check documentation tooling
-        run: bash --version && jq --version
-
       # Every release in docs/versions.json builds with this one JDK, which
       # follows the working tree's gradle/libs.versions.toml, so it must still
       # build the oldest listed release.
