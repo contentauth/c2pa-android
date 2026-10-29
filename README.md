@@ -80,8 +80,7 @@ in the chosen release when it exists there and that release's landing page when
 it does not.
 
 - Default: <https://contentauth.github.io/c2pa-android/>
-- Version 0.0.15: <https://contentauth.github.io/c2pa-android/versions/0.0.15/>
-- Version 0.0.14: <https://contentauth.github.io/c2pa-android/versions/0.0.14/>
+- Each listed release: `https://contentauth.github.io/c2pa-android/versions/<tag>/`
 
 The existing direct package URL
 <https://contentauth.github.io/c2pa-android/c2pa-android/org.contentauth.c2pa/index.html>
@@ -121,12 +120,15 @@ default version, so the real build is the test.
 
 ### Maintaining versions
 
-Add a published release tag to `docs/versions.json`; put it first to make it the
-default. Publishing a release alone does not change the selected versions.
-The documentation workflow validates pull requests and deploys on relevant
-changes to `main`, manual dispatch, and published releases. The release workflow
-also calls it explicitly after release completion, because events created with
-`GITHUB_TOKEN` do not trigger other workflows.
+The release workflow puts each stable release first in
+[docs/versions.json](docs/versions.json), commits that to the release branch
+before tagging, and then rebuilds and deploys the site with that release as the
+default. It calls the documentation workflow explicitly, because events created
+with `GITHUB_TOKEN` do not trigger other workflows. Pre-releases are not added
+and do not rebuild the site. To document another release or change the default,
+edit the list and keep the default first. The documentation workflow also
+deploys on relevant changes to `main` and manual dispatch, and validates pull
+requests without deploying them.
 
 ## Repository structure
 
