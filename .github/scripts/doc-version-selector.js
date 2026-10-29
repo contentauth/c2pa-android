@@ -2,7 +2,7 @@
     "use strict";
 
     const script = document.currentScript;
-    const versions = JSON.parse(script.dataset.versions);
+    const versions = script.dataset.versions.split(" ");
     const assets = new URL(".", script.src);
     const root = new URL(script.dataset.prefix ? "../../" : "./", assets);
     const container = document.getElementById("library-version");
@@ -22,7 +22,20 @@
         select.appendChild(option);
     }
     select.addEventListener("change", function () {
-        window.location.assign(select.value);
+        const landing = select.value;
+        const path = window.location.pathname;
+        if (path.indexOf(assets.pathname) !== 0) {
+            window.location.assign(landing);
+            return;
+        }
+        // Dokka page paths match across releases, so open the same page in the chosen
+        // release when it exists there and its landing page when it does not.
+        const page = new URL(path.slice(assets.pathname.length), landing).href;
+        fetch(page, { method: "HEAD" }).then(function (response) {
+            window.location.assign(response.ok ? page + window.location.hash : landing);
+        }, function () {
+            window.location.assign(landing);
+        });
     });
     label.appendChild(select);
     container.replaceChildren(label);

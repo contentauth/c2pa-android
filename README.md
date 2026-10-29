@@ -75,11 +75,12 @@ This is also how the `track/c2pa-rs-main` branch is built in CI.
 The [published API documentation](https://contentauth.github.io/c2pa-android/)
 is built from the published release tags listed in [docs/versions.json](docs/versions.json),
 not from the current working tree. The first version in that list is the default.
-The documentation header includes a version selector.
+The documentation header includes a version selector, which opens the same page
+in the chosen release when it exists there and that release's landing page when
+it does not.
 
 - Default: <https://contentauth.github.io/c2pa-android/>
-- Version 0.0.15: <https://contentauth.github.io/c2pa-android/versions/0.0.15/>
-- Version 0.0.14: <https://contentauth.github.io/c2pa-android/versions/0.0.14/>
+- Each listed release: `https://contentauth.github.io/c2pa-android/versions/<tag>/`
 
 The existing direct package URL
 <https://contentauth.github.io/c2pa-android/c2pa-android/org.contentauth.c2pa/index.html>
@@ -102,26 +103,32 @@ All documentation and selector links are relative, so this directory can be
 served over HTTP locally or hosted under `/c2pa-android/` on GitHub Pages.
 
 The builder verifies that each tag is a published GitHub release, exports its
-sources to a temporary workspace, and runs that release's Gradle/Dokka
-configuration. It preserves executable permissions on the Gradle wrapper and
+sources to a temporary workspace, and runs that release's own `make docs`, so
+each release builds with the recipe it shipped with. All releases build with the
+one JDK the workflow selects, which must therefore still build the oldest listed
+release. It preserves executable permissions on the Gradle wrapper and
 does not pass `GH_TOKEN` or `GITHUB_TOKEN` to Gradle. Release builds execute the
 tagged Gradle scripts, so only add trusted release tags. Temporary workspaces are
 removed after success or failure, and existing versioned output is replaced only
 after all selected releases build successfully.
 
 The existing `make docs` command still generates working-tree documentation in
-`build/docs/`; it does not replace the versioned site. Run `make docs-test` to test
-the versioning tooling and selector (Bash 3.2+, `jq`, Git, and Node.js 18+; no
-Python, Android SDK, or JDK required for these unit tests).
+`build/docs/`; it does not replace the versioned site. `make docs-versioned` fails
+if a release has no library or package landing page, a page has no head element
+or version slot to carry the selector, or the assembled site's root is not the
+default version, so the real build is the test.
 
 ### Maintaining versions
 
-Add a published release tag to `docs/versions.json`; put it first to make it the
-default. Publishing a release alone does not change the selected versions.
-The documentation workflow validates pull requests and deploys on relevant
-changes to `main`, manual dispatch, and published releases. The release workflow
-also calls it explicitly after release completion, because events created with
-`GITHUB_TOKEN` do not trigger other workflows.
+The release workflow puts each stable release first in
+[docs/versions.json](docs/versions.json), commits that to the release branch
+before tagging, and then rebuilds and deploys the site with that release as the
+default. It calls the documentation workflow explicitly, because events created
+with `GITHUB_TOKEN` do not trigger other workflows. Pre-releases are not added
+and do not rebuild the site. To document another release or change the default,
+edit the list and keep the default first. The documentation workflow also
+deploys on relevant changes to `main` and manual dispatch, and validates pull
+requests without deploying them.
 
 ## Repository structure
 
