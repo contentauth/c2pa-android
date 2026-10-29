@@ -111,8 +111,8 @@ after all selected releases build successfully.
 
 The existing `make docs` command still generates working-tree documentation in
 `build/docs/`; it does not replace the versioned site. Run `make docs-test` to test
-the versioning tooling and selector (Bash 3.2+, `jq`, Git, and Node.js 18+; no
-Python, Android SDK, or JDK required for these unit tests).
+the versioning tooling (Bash 3.2+, `jq`, and Git; no Python, Android SDK, or JDK
+required for these unit tests).
 
 ### Maintaining versions
 

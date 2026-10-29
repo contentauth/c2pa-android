@@ -107,7 +107,6 @@ docs-versioned:
 
 docs-test:
 	bash .github/scripts/test-versioned-docs.sh
-	node --test .github/scripts/test-doc-version-selector.cjs
 
 # Clean generated working-tree documentation
 docs-clean:
@@ -255,7 +254,7 @@ help:
 	@echo "Documentation:"
 	@echo "  docs                  - Generate API docs from the working tree"
 	@echo "  docs-versioned        - Generate default and versioned docs from published releases"
-	@echo "  docs-test             - Test the documentation build tooling and version selector"
+	@echo "  docs-test             - Test the documentation build tooling"
 	@echo "  docs-clean            - Clean generated working-tree documentation"
 	@echo ""
 	@echo "Usage examples:"

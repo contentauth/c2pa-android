@@ -40,10 +40,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
       - name: Check documentation tooling
         run: bash --version && jq --version
 
