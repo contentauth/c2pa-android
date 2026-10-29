@@ -43,6 +43,9 @@ jobs:
       - name: Check documentation tooling
         run: bash --version && jq --version
 
+      # Every release in docs/versions.json builds with this one JDK, which
+      # follows the working tree's gradle/libs.versions.toml, so it must still
+      # build the oldest listed release.
       - name: Resolve JDK version
         id: java
         run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"

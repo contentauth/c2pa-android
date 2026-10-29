@@ -38,9 +38,8 @@ export_release() {
 build_docs() {
   local stage="$1"
   (
-    cd "$stage"
     unset GH_TOKEN GITHUB_TOKEN
-    ./gradlew --no-daemon --console=plain :library:dokkaGeneratePublicationHtml --rerun-tasks
+    make -C "$stage" docs
   ) || return 1
   [[ -f "$stage/build/docs/index.html" && -f "$stage/build/docs/$PACKAGE_INDEX" ]] || {
     fail "Dokka did not generate the library and C2PA package landing pages."; return 1;

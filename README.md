@@ -102,8 +102,10 @@ All documentation and selector links are relative, so this directory can be
 served over HTTP locally or hosted under `/c2pa-android/` on GitHub Pages.
 
 The builder verifies that each tag is a published GitHub release, exports its
-sources to a temporary workspace, and runs that release's Gradle/Dokka
-configuration. It preserves executable permissions on the Gradle wrapper and
+sources to a temporary workspace, and runs that release's own `make docs`, so
+each release builds with the recipe it shipped with. All releases build with the
+one JDK the workflow selects, which must therefore still build the oldest listed
+release. It preserves executable permissions on the Gradle wrapper and
 does not pass `GH_TOKEN` or `GITHUB_TOKEN` to Gradle. Release builds execute the
 tagged Gradle scripts, so only add trusted release tags. Temporary workspaces are
 removed after success or failure, and existing versioned output is replaced only
