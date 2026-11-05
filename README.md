@@ -70,6 +70,20 @@ re-extracts automatically.
 
 This is also how the `track/c2pa-rs-main` branch is built in CI.
 
+## API documentation
+
+The [published API documentation](https://contentauth.github.io/c2pa-android/)
+is built from the published release tags listed in [docs/versions.json](docs/versions.json),
+not from the current working tree. The first version in that list is the default.
+The documentation header includes a version selector, which opens the same page
+in the chosen release when it exists there and that release's landing page when
+it does not.
+
+- Default: `https://contentauth.github.io/c2pa-android/`
+- Each listed release: `https://contentauth.github.io/c2pa-android/versions/<tag>/`
+
+For information on building the API documentation, see [Contributing to the project](https://github.com/contentauth/c2pa-android/blob/main/docs/project-contributions.md).
+
 ## Repository structure
 
 - `/library` - Android library module with C2PA Kotlin APIs and JNI bindings

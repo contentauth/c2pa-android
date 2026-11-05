@@ -1,0 +1,35 @@
+#c2pa-doc-version-selector {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    white-space: nowrap;
+}
+
+#c2pa-doc-version-selector select {
+    max-width: 10rem;
+    padding: 0.25rem;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    color: inherit;
+    background: transparent;
+    font: inherit;
+}
+
+#c2pa-doc-version-selector option {
+    color: CanvasText;
+    background: Canvas;
+}
+
+/* Below Dokka's 900px breakpoint the version slot starts its own header row at the
+   left edge, so line it up with the library logo in the row above. */
+@media (max-width: 899px) {
+    #c2pa-doc-version-selector {
+        padding-left: 12px;
+    }
+}
+
+@media print {
+    #c2pa-doc-version-selector {
+        display: none;
+    }
+}

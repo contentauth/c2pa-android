@@ -21,6 +21,8 @@ jobs:
       contents: write
       attestations: write
       packages: write
+    outputs:
+      is_prerelease: ${{ steps.prerelease.outputs.is_prerelease }}
 
     steps:
     - name: Checkout repository
@@ -33,12 +35,23 @@ jobs:
           echo "::error::Version must be in format X.Y.Z or X.Y.Z-suffix.N (e.g., 1.0.0 or 1.0.0-beta.1)"
           exit 1
         fi
-    
+
     - name: Check tag is unused
       run: |
         if git ls-remote --exit-code --tags origin "refs/tags/${{ github.event.inputs.version }}" > /dev/null; then
           echo "::error::Tag ${{ github.event.inputs.version }} already exists"
           exit 1
+        fi
+
+    - name: Detect pre-release
+      id: prerelease
+      run: |
+        if [[ "${{ github.event.inputs.version }}" == *-* ]]; then
+          echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          echo "Detected pre-release version"
+        else
+          echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          echo "Detected stable release version"
         fi
 
     - name: Configure Git user
@@ -122,8 +135,23 @@ jobs:
         subject-path: 'library/build/outputs/aar/*.aar'
         sbom-path: 'library/build/reports/sbom.json'
 
-    # Everything above can fail without leaving anything behind. The tag is pushed only once the
-    # AAR is built and attested, so a broken build cannot use up a version.
+    # Everything above can fail without leaving anything behind. The docs commit and the tag are
+    # pushed only once the AAR is built and attested, so a broken build cannot use up a version.
+    #
+    # Committed ahead of the tag, so the release includes it and the documentation build lists the
+    # new release as the default. Pre-releases stay out of the version list.
+    - name: Add release to versioned documentation
+      if: steps.prerelease.outputs.is_prerelease == 'false'
+      env:
+        VERSION: ${{ github.event.inputs.version }}
+      run: |
+        jq --arg tag "$VERSION" '.versions = [$tag] + (.versions - [$tag])' docs/versions.json > docs/versions.json.tmp
+        mv docs/versions.json.tmp docs/versions.json
+        cat docs/versions.json
+        git add docs/versions.json
+        git commit -m "docs: add $VERSION to the versioned docs"
+        git push origin HEAD:${{ github.ref_name }}
+
     - name: Create tag
       run: |
         git tag ${{ github.event.inputs.version }}
@@ -221,7 +249,23 @@ jobs:
             echo "1. Review the [draft release](https://github.com/${{ github.repository }}/releases)"
             echo "2. Verify attestations are attached"
             echo "3. Click **Publish release** when ready"
+            if [[ "${{ steps.prerelease.outputs.is_prerelease }}" == "false" ]]; then
+              echo "4. Publishing deploys the versioned documentation for this release"
+            fi
             echo ""
             echo "> **Note**: Once published with immutable releases enabled, the release cannot be modified."
           fi
         } >> "$GITHUB_STEP_SUMMARY"
+
+  # Pre-releases are not added to docs/versions.json, so there is nothing new to publish. A draft
+  # cannot be documented yet, since the docs build accepts only published releases; publishing it
+  # by hand fires the release trigger in docs.yml, which deploys the documentation then.
+  publish-docs:
+    name: Publish versioned API documentation
+    needs: build-and-release
+    if: needs.build-and-release.outputs.is_prerelease == 'false' && github.event.inputs.publish == 'true'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/docs.yml
