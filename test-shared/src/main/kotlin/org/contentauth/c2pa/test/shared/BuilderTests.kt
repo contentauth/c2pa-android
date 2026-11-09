@@ -559,7 +559,18 @@ abstract class BuilderTests : TestBase() {
                         ByteArrayStream(embedded).use { source ->
                             builder.updateHashFromStream("image/jpeg", source)
                         }
-                        builder.signEmbeddable("image/jpeg") // placeholder mode: patches the reserved slot
+                        val signedManifest = builder.signEmbeddable("image/jpeg")
+                        check(signedManifest.size == placeholder.size) {
+                            "Signed manifest must fit the exact placeholder length"
+                        }
+                        signedManifest.copyInto(embedded, manifestPos)
+                        ByteArrayStream(embedded).use { signed ->
+                            Reader.fromStream("image/jpeg", signed).use { reader ->
+                                check(reader.json().contains("manifests")) {
+                                    "Patched asset must contain a readable manifest"
+                                }
+                            }
+                        }
                         placeholder
                     }
                 }
@@ -2246,4 +2257,3 @@ abstract class BuilderTests : TestBase() {
         }
     }
 }
-

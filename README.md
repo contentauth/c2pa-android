@@ -70,6 +70,26 @@ re-extracts automatically.
 
 This is also how the `track/c2pa-rs-main` branch is built in CI.
 
+### Migrating to c2pa-rs 0.92
+
+The 0.92 release removes deprecated native APIs. These bindings remove the
+corresponding Kotlin methods rather than retaining nonfunctional stubs:
+
+- Replace `C2PA.loadSettings`, `C2PA.loadSettingsResult`, and `Signer.loadSettings`
+  with `C2PASettings.updateFromString` and `C2PAContext.fromSettings`.
+- Replace `Signer.fromSettingsJson` / `Signer.fromSettingsToml` with a context
+  created from those settings, then use `Builder.fromContext` and
+  `Builder.signWithContext`. JSON and TOML settings still support CAWG signers;
+  configuration is scoped to the context rather than applied globally.
+- Replace `Builder.dataHashedPlaceholder` and `Builder.signDataHashedEmbeddable`
+  with `placeholder`, `setDataHashExclusions`, `updateHashFromStream`, and
+  `signEmbeddable`. The context must contain a signer. The placeholder size
+  comes from that signer, and the final composed bytes have the same size.
+
+`Builder.formatEmbeddable` remains available for raw manifest bytes through the
+new native composition API. Do not pass it the result of `signEmbeddable`, which
+is already composed for the target format.
+
 ## API documentation
 
 The [published API documentation](https://contentauth.github.io/c2pa-android/)

@@ -72,18 +72,13 @@ import org.contentauth.c2pa.manifest.ManifestValidator
  * ### Advanced: Data hash signing
  *
  * ```kotlin
- * // Create placeholder for later signing
- * val placeholder = builder.dataHashedPlaceholder(
- *     reservedSize = 4096,
- *     format = "image/jpeg"
- * )
- *
- * // Later, sign with the hash
- * val signedManifest = builder.signDataHashedEmbeddable(
- *     signer = signer,
- *     dataHash = computeHash(placeholder),
- *     format = "image/jpeg"
- * )
+ * // The builder's context must contain a signer.
+ * val placeholder = builder.placeholder("image/jpeg")
+ * // Embed the placeholder in the asset, then exclude its byte range from the hash.
+ * builder.setDataHashExclusions(listOf(placeholderOffset to placeholder.size.toLong()))
+ * builder.updateHashFromStream("image/jpeg", assetWithPlaceholder)
+ * val signedManifest = builder.signEmbeddable("image/jpeg")
+ * // Replace the placeholder with signedManifest; it has the same length.
  * ```
  *
  * ## Thread Safety
@@ -298,8 +293,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         /**
          * Wraps raw manifest bytes into a format-specific embeddable block.
          *
-         * Use this to convert the bytes produced by [signDataHashedEmbeddable] or
-         * [signEmbeddable] into a block ready to embed in an asset of the given format.
+         * Use this to convert raw manifest bytes returned by [sign] into a block ready to
+         * embed. [signEmbeddable] already returns composed bytes; do not wrap them again.
          *
          * @param format The MIME type of the target asset (e.g. "image/jpeg")
          * @param manifestBytes The raw manifest bytes to wrap
@@ -605,65 +600,11 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign with context")
 
     /**
-     * Creates a data-hashed placeholder for deferred signing workflows.
-     *
-     * This generates a placeholder manifest that can be embedded in an asset before
-     * the final signature is applied. Use [signDataHashedEmbeddable] to produce the
-     * final signed manifest after computing the asset's data hash.
-     *
-     * @param reservedSize The number of bytes to reserve for the manifest
-     * @param format The MIME type of the asset (e.g., "image/jpeg")
-     * @return The placeholder manifest as a byte array
-     * @throws C2PAError.Api if the placeholder cannot be created
-     *
-     * @see signDataHashedEmbeddable
-     */
-    @Throws(C2PAError::class)
-    fun dataHashedPlaceholder(reservedSize: Long, format: String): ByteArray {
-        val result = dataHashedPlaceholderNative(ptr, reservedSize, format.toNativeUtf8())
-        if (result == null) {
-            throw C2PAError.Api(C2PA.getError() ?: "Failed to create placeholder")
-        }
-        return result
-    }
-
-    /**
-     * Produces a signed manifest using a pre-computed data hash.
-     *
-     * This completes the deferred signing workflow started with [dataHashedPlaceholder].
-     * The caller provides the hash of the asset data, and this method returns the final
-     * signed manifest bytes that can be embedded in the asset.
-     *
-     * @param signer The [Signer] to use for signing
-     * @param dataHash The hex-encoded hash of the asset data
-     * @param format The MIME type of the asset (e.g., "image/jpeg")
-     * @param asset Optional stream containing the asset (used for validation)
-     * @return The signed manifest as a byte array
-     * @throws C2PAError.Api if signing fails
-     *
-     * @see dataHashedPlaceholder
-     */
-    @Throws(C2PAError::class)
-    fun signDataHashedEmbeddable(signer: Signer, dataHash: String, format: String, asset: Stream? = null): ByteArray {
-        val result =
-            signDataHashedEmbeddableNative(
-                ptr,
-                signer.ptr,
-                dataHash.toNativeUtf8(),
-                format.toNativeUtf8(),
-                asset?.rawPtr ?: 0L,
-            )
-        if (result == null) {
-            throw C2PAError.Api(C2PA.getError() ?: "Failed to sign with data hash")
-        }
-        return result
-    }
-
-    /**
      * Signs the manifest and returns embeddable manifest bytes for caller-managed embedding.
      *
      * Unlike [sign], this does not write a signed asset; it returns the manifest bytes so the
-     * caller controls how/where they are embedded. Requires a valid hard-binding assertion.
+     * caller controls how/where they are embedded. Requires a signer on the builder's context
+     * and a valid hard-binding assertion. After [placeholder], returns exactly the reserved size.
      *
      * @param format The MIME type of the target asset (e.g. "image/jpeg")
      * @return The signed, embeddable manifest bytes
@@ -678,7 +619,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * Returns the composed placeholder manifest bytes for the given format.
      *
      * The placeholder reserves space in the asset for a manifest that will be signed later in a
-     * deferred (data-hashed) signing workflow.
+     * deferred (data-hashed) signing workflow. Its size is determined by the signer on the
+     * builder's context; callers no longer supply a reserve size.
      *
      * @param format The MIME type of the target asset (e.g. "image/jpeg")
      * @return The composed placeholder bytes
@@ -842,14 +784,6 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         sourceHandle: Long,
         destHandle: Long,
     ): SignResult?
-    private external fun dataHashedPlaceholderNative(handle: Long, reservedSize: Long, format: ByteArray): ByteArray?
-    private external fun signDataHashedEmbeddableNative(
-        handle: Long,
-        signerHandle: Long,
-        dataHash: ByteArray,
-        format: ByteArray,
-        assetHandle: Long,
-    ): ByteArray?
     private external fun signEmbeddableNative(handle: Long, format: ByteArray): ByteArray?
     private external fun placeholderNative(handle: Long, format: ByteArray): ByteArray?
     private external fun needsPlaceholderNative(handle: Long, format: ByteArray): Int

@@ -20,7 +20,9 @@ import kotlinx.coroutines.withContext
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
+import org.contentauth.c2pa.C2PAContext
 import org.contentauth.c2pa.C2PAError
+import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
 import org.contentauth.c2pa.SignerInfo
@@ -332,61 +334,33 @@ abstract class CoreTests : TestBase() {
         }
     }
 
-    @Suppress("DEPRECATION")
     suspend fun testLoadSettings(): TestResult = withContext(Dispatchers.IO) {
         runTest("Load Settings") {
             val settingsJson =
                 """{
-                "version_major": 1,
-                "version_minor": 0,
-                "trust": {
-                    "private_anchors": null,
-                    "trust_anchors": null,
-                    "trust_config": null,
-                    "allowed_list": null
-                },
-                "Core": {
-                    "debug": false,
-                    "hash_alg": "sha256",
-                    "salt_jumbf_boxes": true,
-                    "prefer_box_hash": false,
-                    "prefer_bmff_merkle_tree": false,
-                    "compress_manifests": true,
-                    "max_memory_usage": null
-                },
-                "Verify": {
+                "version": 1,
+                "verify": {
                     "verify_after_reading": true,
                     "verify_after_sign": true,
-                    "verify_trust": true,
-                    "ocsp_fetch": false,
-                    "remote_manifest_fetch": true,
-                    "check_ingredient_trust": true,
-                    "skip_ingredient_conflict_resolution": false,
-                    "strict_v1_validation": false
+                    "verify_trust": true
                 },
-                "Builder": {
+                "builder": {
                     "auto_thumbnail": true
                 }
             }"""
 
-            val success =
-                try {
-                    C2PA.loadSettings(settingsJson, "json")
-                    true
-                } catch (e: Exception) {
-                    false
+            try {
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsJson, "json")
+                    C2PAContext.fromSettings(settings)
                 }
-
-            TestResult(
-                "Load Settings",
-                success,
-                if (success) {
-                    "Settings loaded successfully"
-                } else {
-                    "Failed to load settings: ${C2PA.getError()}"
-                },
-                if (success) "Success" else "Error: ${C2PA.getError()}",
-            )
+                context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { }
+                }
+                TestResult("Load Settings", true, "Settings loaded into an independent context", null)
+            } catch (e: Exception) {
+                TestResult("Load Settings", false, "Failed to load context settings", e.toString())
+            }
         }
     }
 

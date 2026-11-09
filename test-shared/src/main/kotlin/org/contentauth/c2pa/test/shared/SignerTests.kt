@@ -30,6 +30,7 @@ import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.CertificateManager
 import org.contentauth.c2pa.FileStream
 import org.contentauth.c2pa.KeyStoreSigner
+import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
 import org.contentauth.c2pa.SignerInfo
 import org.contentauth.c2pa.SigningAlgorithm
@@ -982,162 +983,39 @@ abstract class SignerTests : TestBase() {
         }
     }
 
-    @Suppress("DEPRECATION")
-    suspend fun testSignerFromSettingsToml(): TestResult = withContext(Dispatchers.IO) {
-        runTest("Signer From Settings (TOML)") {
+    suspend fun testSignerFromSettingsToml(): TestResult = testSignerFromContextSettings("toml")
+
+    suspend fun testSignerFromSettingsJson(): TestResult = testSignerFromContextSettings("json")
+
+    private suspend fun testSignerFromContextSettings(format: String): TestResult = withContext(Dispatchers.IO) {
+        val name = "Signer From Context Settings (${format.uppercase()})"
+        runTest(name) {
             try {
-                val settingsToml = loadSharedResourceAsString("test_settings_with_cawg_signing.toml")
-                    ?: throw IllegalArgumentException("Resource not found: test_settings_with_cawg_signing.toml")
-
-                Signer.fromSettingsToml(settingsToml).use { signer ->
-                    // Load test image
-                    val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
-
-                    // Create manifest
-                    val manifestJson = TEST_MANIFEST_JSON
-
-                    Builder.fromJson(manifestJson).use { builder ->
-                        val destFile = File.createTempFile("cawg_toml_test", ".jpg")
-                        try {
-                            ByteArrayStream(sourceImageData).use { sourceStream ->
-                                FileStream(destFile).use { destStream ->
-                                    val result = builder.sign(
-                                        "image/jpeg",
-                                        sourceStream,
-                                        destStream,
-                                        signer,
-                                    )
-
-                                    val signSucceeded = result.size > 0
-
-                                    // Verify the signed image contains a valid manifest
-                                    val manifestResult = if (signSucceeded && destFile.exists()) {
-                                        try {
-                                            val manifest = C2PA.readFile(destFile.absolutePath)
-                                            manifest
-                                        } catch (e: Exception) {
-                                            ""
-                                        }
-                                    } else {
-                                        ""
+                val resource = "test_settings_with_cawg_signing.$format"
+                val settingsText = loadSharedResourceAsString(resource)
+                    ?: throw IllegalArgumentException("Resource not found: $resource")
+                val context = C2PASettings.create().use { settings ->
+                    settings.updateFromString(settingsText, format)
+                    C2PAContext.fromSettings(settings)
+                }
+                context.use { ctx ->
+                    Builder.fromContext(ctx).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                        ByteArrayStream(loadResourceAsBytes("pexels_asadphoto_457882")).use { source ->
+                            ByteArrayStream().use { dest ->
+                                val result = builder.signWithContext("image/jpeg", source, dest)
+                                ByteArrayStream(dest.getData()).use { signed ->
+                                    Reader.fromStream("image/jpeg", signed).use { reader ->
+                                        val detail = assertCawgIdentityInManifest(reader.json())
+                                        TestResult(name, result.size > 0, "Signed with context settings", detail)
                                     }
-
-                                    val hasManifest = manifestResult.isNotEmpty() &&
-                                        manifestResult.contains("manifests")
-
-                                    // Check for CAWG assertions in the manifest
-                                    val hasCawgContent = manifestResult.lowercase().let {
-                                        it.contains("cawg") || it.contains("training-mining")
-                                    }
-
-                                    val success = signSucceeded && hasManifest
-
-                                    TestResult(
-                                        "Signer From Settings (TOML)",
-                                        success,
-                                        if (success) {
-                                            if (hasCawgContent) {
-                                                "Signed with CAWG signer - found CAWG content"
-                                            } else {
-                                                "Signed successfully (CAWG assertions may require SDK update)"
-                                            }
-                                        } else {
-                                            "Signing failed"
-                                        },
-                                        "Signed: $signSucceeded, Has manifest: $hasManifest, Has CAWG: $hasCawgContent",
-                                    )
                                 }
                             }
-                        } finally {
-                            destFile.delete()
                         }
                     }
                 }
             } catch (e: Exception) {
                 TestResult(
-                    "Signer From Settings (TOML)",
-                    false,
-                    "Test failed with exception",
-                    "${e.javaClass.simpleName}: ${e.message}",
-                )
-            }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    suspend fun testSignerFromSettingsJson(): TestResult = withContext(Dispatchers.IO) {
-        runTest("Signer From Settings (JSON)") {
-            try {
-                val settingsJson = loadSharedResourceAsString("test_settings_with_cawg_signing.json")
-                    ?: throw IllegalArgumentException("Resource not found: test_settings_with_cawg_signing.json")
-
-                Signer.fromSettingsJson(settingsJson).use { signer ->
-                    // Load test image
-                    val sourceImageData = loadResourceAsBytes("pexels_asadphoto_457882")
-
-                    // Create manifest
-                    val manifestJson = TEST_MANIFEST_JSON
-
-                    Builder.fromJson(manifestJson).use { builder ->
-                        val destFile = File.createTempFile("cawg_json_test", ".jpg")
-                        try {
-                            ByteArrayStream(sourceImageData).use { sourceStream ->
-                                FileStream(destFile).use { destStream ->
-                                    val result = builder.sign(
-                                        "image/jpeg",
-                                        sourceStream,
-                                        destStream,
-                                        signer,
-                                    )
-
-                                    val signSucceeded = result.size > 0
-
-                                    // Verify the signed image contains a valid manifest
-                                    val manifestResult = if (signSucceeded && destFile.exists()) {
-                                        try {
-                                            val manifest = C2PA.readFile(destFile.absolutePath)
-                                            manifest
-                                        } catch (e: Exception) {
-                                            ""
-                                        }
-                                    } else {
-                                        ""
-                                    }
-
-                                    val hasManifest = manifestResult.isNotEmpty() &&
-                                        manifestResult.contains("manifests")
-
-                                    // Check for CAWG assertions in the manifest
-                                    val hasCawgContent = manifestResult.lowercase().let {
-                                        it.contains("cawg") || it.contains("training-mining")
-                                    }
-
-                                    val success = signSucceeded && hasManifest
-
-                                    TestResult(
-                                        "Signer From Settings (JSON)",
-                                        success,
-                                        if (success) {
-                                            if (hasCawgContent) {
-                                                "Signed with CAWG signer - found CAWG content"
-                                            } else {
-                                                "Signed successfully (CAWG assertions may require SDK update)"
-                                            }
-                                        } else {
-                                            "Signing failed"
-                                        },
-                                        "Signed: $signSucceeded, Has manifest: $hasManifest, Has CAWG: $hasCawgContent",
-                                    )
-                                }
-                            }
-                        } finally {
-                            destFile.delete()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                TestResult(
-                    "Signer From Settings (JSON)",
+                    name,
                     false,
                     "Test failed with exception",
                     "${e.javaClass.simpleName}: ${e.message}",
