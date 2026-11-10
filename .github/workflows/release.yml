@@ -257,9 +257,9 @@ jobs:
           fi
         } >> "$GITHUB_STEP_SUMMARY"
 
-  # Pre-releases are not added to docs/versions.json, so there is nothing new to publish. A draft
-  # cannot be documented yet, since the docs build accepts only published releases; publishing it
-  # by hand fires the release trigger in docs.yml, which deploys the documentation then.
+  # Pre-releases are not added to docs/versions.json, so there is nothing new to publish. The docs
+  # build leaves a draft out, so there is nothing new for a draft either; publishing it by hand
+  # fires the release trigger in docs.yml, which deploys the documentation with it then.
   publish-docs:
     name: Publish versioned API documentation
     needs: build-and-release
