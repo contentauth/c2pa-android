@@ -541,7 +541,10 @@ abstract class BuilderTests : TestBase() {
                 // placeholder() reserves space sized to the signature, so the signer must be on the
                 // context. Canonical placeholder workflow (mirrors the c2pa-rs data_hash example):
                 // placeholder -> embed after the JPEG SOI marker -> register the exclusion ->
-                // hash the asset -> signEmbeddable patches the reserved slot.
+                // hash the asset -> signEmbeddable returns bytes of the placeholder's length ->
+                // overwrite the reserved slot in place.
+                var signedSize = 0
+                var readable = false
                 val context = C2PASettings.create().use { settings ->
                     settings.updateFromString(settingsJson, "json")
                     val signer = Signer.fromInfo(SignerInfo(SigningAlgorithm.ES256, certPem, keyPem))
@@ -559,12 +562,19 @@ abstract class BuilderTests : TestBase() {
                         ByteArrayStream(embedded).use { source ->
                             builder.updateHashFromStream("image/jpeg", source)
                         }
-                        builder.signEmbeddable("image/jpeg") // placeholder mode: patches the reserved slot
+                        val signed = builder.signEmbeddable("image/jpeg")
+                        signedSize = signed.size
+                        if (signed.size == placeholder.size) {
+                            signed.copyInto(embedded, manifestPos)
+                            readable = ByteArrayStream(embedded).use { patched ->
+                                Reader.fromStream("image/jpeg", patched).use { it.json().contains("manifests") }
+                            }
+                        }
                         placeholder
                     }
                 }
 
-                // formatEmbeddable wraps a raw (application/c2pa) manifest from a no-embed sign.
+                // composeManifest wraps a raw (application/c2pa) manifest from a no-embed sign.
                 val formattedSize = Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
                     builder.setNoEmbed()
                     ByteArrayStream(sourceImageData).use { source ->
@@ -573,22 +583,35 @@ abstract class BuilderTests : TestBase() {
                                 val signResult = builder.sign("image/jpeg", source, dest, signer)
                                 val manifestBytes = signResult.manifestBytes
                                     ?: throw C2PAError.Api("No manifest bytes from no-embed sign")
-                                Builder.formatEmbeddable("image/jpeg", manifestBytes).size
+                                val composed = builder.composeManifest("image/jpeg", manifestBytes)
+                                // A caller holding only bytes composes through a builder on a
+                                // default context.
+                                val composedStandalone = C2PAContext.create().use { ctx ->
+                                    Builder.fromContext(ctx).use { it.composeManifest("image/jpeg", manifestBytes) }
+                                }
+                                if (!composed.contentEquals(composedStandalone)) {
+                                    throw C2PAError.Api("composeManifest differs between builders")
+                                }
+                                composed.size
                             }
                         }
                     }
                 }
 
-                val success = placeholderBytes.isNotEmpty() && formattedSize > 0
+                val success = placeholderBytes.isNotEmpty() &&
+                    signedSize == placeholderBytes.size &&
+                    readable &&
+                    formattedSize > 0
                 TestResult(
                     "Embeddable and Placeholder",
                     success,
                     if (success) {
-                        "Placeholder, exclusions, and formatEmbeddable succeeded"
+                        "Placeholder, exclusions, and composeManifest succeeded"
                     } else {
-                        "Embeddable flow produced empty output"
+                        "Embeddable flow produced empty, mis-sized, or unreadable output"
                     },
-                    "Placeholder bytes: ${placeholderBytes.size}, Formatted size: $formattedSize",
+                    "Placeholder bytes: ${placeholderBytes.size}, Signed bytes: $signedSize, " +
+                        "Patched asset readable: $readable, Formatted size: $formattedSize",
                 )
             } catch (e: C2PAError) {
                 TestResult(
@@ -740,7 +763,8 @@ abstract class BuilderTests : TestBase() {
             // Exercise the error-return branches of the embeddable methods. Each op is invoked in a
             // state the core rejects: placeholder/signEmbeddable need a signer on the context
             // (Builder.fromJson has none), and setDataHashExclusions fails with no DataHash assertion
-            // (no placeholder). Each must throw C2PAError. (setFixedSizeMerkle is not checked here: it
+            // (no placeholder), and composeManifest has no handler for an unsupported format. Each
+            // must throw C2PAError. (setFixedSizeMerkle is not checked here: it
             // just records the chunk size and succeeds without a DataHash, so it has no reachable
             // error state on a fresh builder.)
             val unexpectedSuccess = mutableListOf<String>()
@@ -762,6 +786,11 @@ abstract class BuilderTests : TestBase() {
             Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
                 expectThrows("setDataHashExclusions") { b.setDataHashExclusions(listOf(0L to 2L)) }
             }
+            Builder.fromJson(TEST_MANIFEST_JSON).use { b ->
+                expectThrows("composeManifest") {
+                    b.composeManifest("application/x-unsupported", byteArrayOf(1, 2, 3))
+                }
+            }
 
             val success = unexpectedSuccess.isEmpty()
             TestResult(
@@ -772,7 +801,7 @@ abstract class BuilderTests : TestBase() {
                 } else {
                     "Did not throw for: ${unexpectedSuccess.joinToString()}"
                 },
-                "Checked 3 error paths; unexpected successes: ${unexpectedSuccess.size}",
+                "Checked 4 error paths; unexpected successes: ${unexpectedSuccess.size}",
             )
         }
     }
@@ -1088,6 +1117,9 @@ abstract class BuilderTests : TestBase() {
             }
             expect("setNoEmbed on closed builder", IllegalStateException::class.java) {
                 builder.setNoEmbed()
+            }
+            expect("composeManifest on closed builder", IllegalStateException::class.java) {
+                builder.composeManifest("image/jpeg", byteArrayOf(1))
             }
 
             val testImageData = loadResourceAsBytes("adobe_20220124_ci")

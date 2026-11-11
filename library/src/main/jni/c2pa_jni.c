@@ -911,28 +911,6 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_C2PA_getErrorNative(JNIEn
     return result;
 }
 
-JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PA_loadSettingsNative(JNIEnv *env, jclass clazz, jbyteArray settings, jbyteArray format) {
-    if (settings == NULL || format == NULL) {
-        throw_checked(env, "java/lang/IllegalArgumentException", "Settings and format cannot be null");
-        return -1;
-    }
-
-    const char *csettings = jbytes_to_cstring(env, settings);
-    const char *cformat = jbytes_to_cstring(env, format);
-    if (csettings == NULL || cformat == NULL) {
-        release_cstring(csettings);
-        release_cstring(cformat);
-        return -1;
-    }
-
-    int result = c2pa_load_settings(csettings, cformat);
-
-    release_cstring(csettings);
-    release_cstring(cformat);
-
-    return result;
-}
-
 // Stream native methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Stream_createStreamNative(JNIEnv *env, jobject obj) {
     JavaStreamContext *ctx = (JavaStreamContext*)calloc(1, sizeof(JavaStreamContext));
@@ -1590,101 +1568,6 @@ JNIEXPORT jobject JNICALL Java_org_contentauth_c2pa_Builder_signWithContextNativ
     return build_sign_result(env, size, manifestBytes);
 }
 
-// New Builder methods
-JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_dataHashedPlaceholderNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong reservedSize, jbyteArray format) {
-    if (builderPtr == 0) {
-        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
-        return NULL;
-    }
-    if (format == NULL || reservedSize <= 0) {
-        throw_checked(env, "java/lang/IllegalArgumentException", "Format cannot be null and reserved size must be positive");
-        return NULL;
-    }
-    
-    if ((uint64_t)reservedSize != (uint64_t)(uintptr_t)reservedSize) {
-        throw_checked(env, "java/lang/IllegalArgumentException", "Reserved size out of range");
-        return NULL;
-    }
-
-    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
-    const char *cformat = jbytes_to_cstring(env, format);
-    if (cformat == NULL) {
-        return NULL;
-    }
-    
-    const unsigned char *manifestBytes = NULL;
-    int64_t size = c2pa_builder_data_hashed_placeholder(builder, (uintptr_t)reservedSize, cformat, &manifestBytes);
-    
-    release_cstring(cformat);
-    
-    if (size < 0 || manifestBytes == NULL) {
-        return NULL;
-    }
-    
-    jbyteArray result = new_byte_array_for_size(env, size);
-    if (result == NULL) {
-        c2pa_free(manifestBytes);
-        return NULL;
-    }
-    
-    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
-    if (check_exception(env)) {
-        c2pa_free(manifestBytes);
-        return NULL;
-    }
-    
-    c2pa_free(manifestBytes);
-    return result;
-}
-
-JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signDataHashedEmbeddableNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr, jbyteArray dataHash, jbyteArray format, jlong assetPtr) {
-    clear_stashed_exception(env);
-    if (builderPtr == 0) {
-        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
-        return NULL;
-    }
-    if (signerPtr == 0 || dataHash == NULL || format == NULL) {
-        throw_checked(env, "java/lang/IllegalArgumentException", "Signer, data hash, and format cannot be null");
-        return NULL;
-    }
-
-    struct C2paBuilder *builder = (struct C2paBuilder*)(uintptr_t)builderPtr;
-    struct C2paSigner *signer = (struct C2paSigner*)(uintptr_t)signerPtr;
-    const char *cdataHash = jbytes_to_cstring(env, dataHash);
-    const char *cformat = jbytes_to_cstring(env, format);
-    if (cdataHash == NULL || cformat == NULL) {
-        release_cstring(cdataHash);
-        release_cstring(cformat);
-        return NULL;
-    }
-
-    struct C2paStream *asset = assetPtr != 0 ? (struct C2paStream*)(uintptr_t)assetPtr : NULL;
-    const unsigned char *manifestBytes = NULL;
-
-    int64_t size = c2pa_builder_sign_data_hashed_embeddable(builder, signer, cdataHash, cformat, asset, &manifestBytes);
-
-    release_cstring(cdataHash);
-    release_cstring(cformat);
-
-    finish_stashed_exception(env, size < 0 || manifestBytes == NULL);
-    if (size < 0 || manifestBytes == NULL) {
-        if (manifestBytes != NULL) {
-            c2pa_free(manifestBytes);
-        }
-        return NULL;
-    }
-
-    jbyteArray result = new_byte_array_for_size(env, size);
-    if (result == NULL) {
-        c2pa_free(manifestBytes);
-        return NULL;
-    }
-    (*env)->SetByteArrayRegion(env, result, 0, (jsize)size, (const jbyte*)manifestBytes);
-    c2pa_free(manifestBytes);
-
-    return result;
-}
-
 JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_signEmbeddableNative(JNIEnv *env, jobject obj, jlong builderPtr, jbyteArray format) {
     clear_stashed_exception(env);
     if (builderPtr == 0) {
@@ -1821,7 +1704,11 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setDataHashExclusionsNa
     return result;
 }
 
-JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_formatEmbeddableNative(JNIEnv *env, jclass clazz, jbyteArray format, jbyteArray manifestData) {
+JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_composeManifestNative(JNIEnv *env, jobject obj, jlong builderPtr, jbyteArray format, jbyteArray manifestData) {
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return NULL;
+    }
     if (format == NULL || manifestData == NULL) {
         throw_checked(env, "java/lang/IllegalArgumentException", "Format and manifest data cannot be null");
         return NULL;
@@ -1841,7 +1728,13 @@ JNIEXPORT jbyteArray JNICALL Java_org_contentauth_c2pa_Builder_formatEmbeddableN
     }
 
     const unsigned char *resultBytes = NULL;
-    int64_t size = c2pa_format_embeddable(cformat, (const unsigned char*)data, (uintptr_t)dataSize, &resultBytes);
+    int64_t size = c2pa_builder_compose_manifest(
+        (struct C2paBuilder*)(uintptr_t)builderPtr,
+        cformat,
+        (const unsigned char*)data,
+        (uintptr_t)dataSize,
+        &resultBytes
+    );
 
     (*env)->ReleaseByteArrayElements(env, manifestData, data, JNI_ABORT);
     release_cstring(cformat);
@@ -1963,16 +1856,6 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_hashTypeNative(JNIEnv *
 }
 
 // Signer native methods
-JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromSettings(JNIEnv *env, jclass clazz) {
-    struct C2paSigner *signer = c2pa_signer_from_settings();
-    
-    if (signer == NULL) {
-        return 0;
-    }
-    
-    return (jlong)(uintptr_t)signer;
-}
-
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_nativeFromInfo(JNIEnv *env, jclass clazz, jbyteArray algorithm, jbyteArray certificatePEM, jbyteArray privateKeyPEM, jbyteArray tsaURL) {
     if (algorithm == NULL || certificatePEM == NULL || privateKeyPEM == NULL) {
         throw_checked(env, "java/lang/IllegalArgumentException", "Required parameters cannot be null");

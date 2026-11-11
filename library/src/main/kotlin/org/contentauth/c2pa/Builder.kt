@@ -71,19 +71,21 @@ import org.contentauth.c2pa.manifest.ManifestValidator
  *
  * ### Advanced: Data hash signing
  *
- * ```kotlin
- * // Create placeholder for later signing
- * val placeholder = builder.dataHashedPlaceholder(
- *     reservedSize = 4096,
- *     format = "image/jpeg"
- * )
+ * The builder's context must carry the signer, because the placeholder is sized from it.
  *
- * // Later, sign with the hash
- * val signedManifest = builder.signDataHashedEmbeddable(
- *     signer = signer,
- *     dataHash = computeHash(placeholder),
- *     format = "image/jpeg"
- * )
+ * ```kotlin
+ * val context = C2PAContextBuilder.create().setSigner(signer).build()
+ * val builder = Builder.fromContext(context).withDefinition(manifestJson)
+ *
+ * // Reserve space: embed the placeholder in the asset at placeholderOffset
+ * val placeholder = builder.placeholder("image/jpeg")
+ *
+ * // Exclude the placeholder's byte range, then hash the asset that contains it
+ * builder.setDataHashExclusions(listOf(placeholderOffset to placeholder.size.toLong()))
+ * builder.updateHashFromStream("image/jpeg", assetWithPlaceholder)
+ *
+ * // The signed manifest has the placeholder's length; overwrite the placeholder with it
+ * val signedManifest = builder.signEmbeddable("image/jpeg")
  * ```
  *
  * ## Thread Safety
@@ -295,29 +297,11 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         fun supportedMimeTypes(): List<String> =
             supportedMimeTypesNative()?.mapNotNull { it?.fromNativeUtf8() } ?: emptyList()
 
-        /**
-         * Wraps raw manifest bytes into a format-specific embeddable block.
-         *
-         * Use this to convert the bytes produced by [signDataHashedEmbeddable] or
-         * [signEmbeddable] into a block ready to embed in an asset of the given format.
-         *
-         * @param format The MIME type of the target asset (e.g. "image/jpeg")
-         * @param manifestBytes The raw manifest bytes to wrap
-         * @return The embeddable manifest bytes for the given format
-         * @throws C2PAError.Api if the bytes cannot be formatted
-         */
-        @JvmStatic
-        @Throws(C2PAError::class)
-        fun formatEmbeddable(format: String, manifestBytes: ByteArray): ByteArray =
-            formatEmbeddableNative(format.toNativeUtf8(), manifestBytes)
-                ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to format embeddable manifest")
-
         @JvmStatic private external fun nativeFromArchive(streamHandle: Long): Long
 
         @JvmStatic private external fun nativeFromContext(contextPtr: Long): Long
 
         @JvmStatic private external fun supportedMimeTypesNative(): Array<ByteArray?>?
-        @JvmStatic private external fun formatEmbeddableNative(format: ByteArray, manifestData: ByteArray): ByteArray?
     }
 
     /**
@@ -591,7 +575,7 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * Unlike [sign], no explicit [Signer] is passed; the builder's context must have a signer
      * configured, or signing fails. Every builder has a context ([fromJson] creates one
      * internally), so this also works for builders created with [fromJson] and a [C2PASettings]
-     * that carries a signer. Use this instead of the deprecated settings-based [Signer] factories.
+     * that carries a signer.
      *
      * @param format The MIME type of the asset (e.g. "image/jpeg")
      * @param source The input stream containing the original asset
@@ -605,69 +589,16 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to sign with context")
 
     /**
-     * Creates a data-hashed placeholder for deferred signing workflows.
-     *
-     * This generates a placeholder manifest that can be embedded in an asset before
-     * the final signature is applied. Use [signDataHashedEmbeddable] to produce the
-     * final signed manifest after computing the asset's data hash.
-     *
-     * @param reservedSize The number of bytes to reserve for the manifest
-     * @param format The MIME type of the asset (e.g., "image/jpeg")
-     * @return The placeholder manifest as a byte array
-     * @throws C2PAError.Api if the placeholder cannot be created
-     *
-     * @see signDataHashedEmbeddable
-     */
-    @Throws(C2PAError::class)
-    fun dataHashedPlaceholder(reservedSize: Long, format: String): ByteArray {
-        val result = dataHashedPlaceholderNative(ptr, reservedSize, format.toNativeUtf8())
-        if (result == null) {
-            throw C2PAError.Api(C2PA.getError() ?: "Failed to create placeholder")
-        }
-        return result
-    }
-
-    /**
-     * Produces a signed manifest using a pre-computed data hash.
-     *
-     * This completes the deferred signing workflow started with [dataHashedPlaceholder].
-     * The caller provides the hash of the asset data, and this method returns the final
-     * signed manifest bytes that can be embedded in the asset.
-     *
-     * @param signer The [Signer] to use for signing
-     * @param dataHash The hex-encoded hash of the asset data
-     * @param format The MIME type of the asset (e.g., "image/jpeg")
-     * @param asset Optional stream containing the asset (used for validation)
-     * @return The signed manifest as a byte array
-     * @throws C2PAError.Api if signing fails
-     *
-     * @see dataHashedPlaceholder
-     */
-    @Throws(C2PAError::class)
-    fun signDataHashedEmbeddable(signer: Signer, dataHash: String, format: String, asset: Stream? = null): ByteArray {
-        val result =
-            signDataHashedEmbeddableNative(
-                ptr,
-                signer.ptr,
-                dataHash.toNativeUtf8(),
-                format.toNativeUtf8(),
-                asset?.rawPtr ?: 0L,
-            )
-        if (result == null) {
-            throw C2PAError.Api(C2PA.getError() ?: "Failed to sign with data hash")
-        }
-        return result
-    }
-
-    /**
      * Signs the manifest and returns embeddable manifest bytes for caller-managed embedding.
      *
      * Unlike [sign], this does not write a signed asset; it returns the manifest bytes so the
-     * caller controls how/where they are embedded. Requires a valid hard-binding assertion.
+     * caller controls how/where they are embedded. Requires a signer on the builder's
+     * [C2PAContext] and a valid hard-binding assertion. After [placeholder], the returned bytes
+     * are padded to the placeholder's length so they can overwrite it in place.
      *
      * @param format The MIME type of the target asset (e.g. "image/jpeg")
      * @return The signed, embeddable manifest bytes
-     * @throws C2PAError.Api if signing fails
+     * @throws C2PAError.Api if signing fails (e.g. the context has no signer)
      */
     @Throws(C2PAError::class)
     fun signEmbeddable(format: String): ByteArray =
@@ -678,7 +609,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
      * Returns the composed placeholder manifest bytes for the given format.
      *
      * The placeholder reserves space in the asset for a manifest that will be signed later in a
-     * deferred (data-hashed) signing workflow.
+     * deferred (data-hashed) signing workflow. Its size comes from the signer on the builder's
+     * [C2PAContext], so the context must carry one.
      *
      * @param format The MIME type of the target asset (e.g. "image/jpeg")
      * @return The composed placeholder bytes
@@ -688,6 +620,26 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     fun placeholder(format: String): ByteArray =
         placeholderNative(ptr, format.toNativeUtf8())
             ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to create placeholder")
+
+    /**
+     * Wraps raw manifest bytes into the block that an asset of the given format embeds.
+     *
+     * Use this for a raw (`application/c2pa`) manifest, such as the bytes [sign] returns after
+     * [setNoEmbed]. The bytes returned by [placeholder] and [signEmbeddable] are already composed
+     * for their format and must not be passed here.
+     *
+     * Composition uses this builder's context but not its manifest definition, so a caller holding
+     * only manifest bytes can use a builder created from a default [C2PAContext].
+     *
+     * @param format The MIME type of the target asset (e.g. "image/jpeg")
+     * @param manifestBytes The raw manifest bytes to wrap
+     * @return The embeddable manifest bytes for the given format
+     * @throws C2PAError.Api if the bytes cannot be composed for the format
+     */
+    @Throws(C2PAError::class)
+    fun composeManifest(format: String, manifestBytes: ByteArray): ByteArray =
+        composeManifestNative(ptr, format.toNativeUtf8(), manifestBytes)
+            ?: throw C2PAError.Api(C2PA.getError() ?: "Failed to compose manifest")
 
     /**
      * Returns whether a placeholder manifest is required for the given format.
@@ -842,16 +794,9 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
         sourceHandle: Long,
         destHandle: Long,
     ): SignResult?
-    private external fun dataHashedPlaceholderNative(handle: Long, reservedSize: Long, format: ByteArray): ByteArray?
-    private external fun signDataHashedEmbeddableNative(
-        handle: Long,
-        signerHandle: Long,
-        dataHash: ByteArray,
-        format: ByteArray,
-        assetHandle: Long,
-    ): ByteArray?
     private external fun signEmbeddableNative(handle: Long, format: ByteArray): ByteArray?
     private external fun placeholderNative(handle: Long, format: ByteArray): ByteArray?
+    private external fun composeManifestNative(handle: Long, format: ByteArray, manifestData: ByteArray): ByteArray?
     private external fun needsPlaceholderNative(handle: Long, format: ByteArray): Int
     private external fun setDataHashExclusionsNative(handle: Long, exclusions: LongArray): Int
     private external fun setFixedSizeMerkleNative(handle: Long, fixedSizeKb: Long): Int

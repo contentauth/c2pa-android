@@ -332,64 +332,6 @@ abstract class CoreTests : TestBase() {
         }
     }
 
-    @Suppress("DEPRECATION")
-    suspend fun testLoadSettings(): TestResult = withContext(Dispatchers.IO) {
-        runTest("Load Settings") {
-            val settingsJson =
-                """{
-                "version_major": 1,
-                "version_minor": 0,
-                "trust": {
-                    "private_anchors": null,
-                    "trust_anchors": null,
-                    "trust_config": null,
-                    "allowed_list": null
-                },
-                "Core": {
-                    "debug": false,
-                    "hash_alg": "sha256",
-                    "salt_jumbf_boxes": true,
-                    "prefer_box_hash": false,
-                    "prefer_bmff_merkle_tree": false,
-                    "compress_manifests": true,
-                    "max_memory_usage": null
-                },
-                "Verify": {
-                    "verify_after_reading": true,
-                    "verify_after_sign": true,
-                    "verify_trust": true,
-                    "ocsp_fetch": false,
-                    "remote_manifest_fetch": true,
-                    "check_ingredient_trust": true,
-                    "skip_ingredient_conflict_resolution": false,
-                    "strict_v1_validation": false
-                },
-                "Builder": {
-                    "auto_thumbnail": true
-                }
-            }"""
-
-            val success =
-                try {
-                    C2PA.loadSettings(settingsJson, "json")
-                    true
-                } catch (e: Exception) {
-                    false
-                }
-
-            TestResult(
-                "Load Settings",
-                success,
-                if (success) {
-                    "Settings loaded successfully"
-                } else {
-                    "Failed to load settings: ${C2PA.getError()}"
-                },
-                if (success) "Success" else "Error: ${C2PA.getError()}",
-            )
-        }
-    }
-
     suspend fun testInvalidInputs(): TestResult = withContext(Dispatchers.IO) {
         runTest("Invalid Inputs") {
             val errors = mutableListOf<String>()
