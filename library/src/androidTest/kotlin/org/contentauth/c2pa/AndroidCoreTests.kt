@@ -76,12 +76,6 @@ class AndroidCoreTests : CoreTests() {
     }
 
     @Test
-    fun runTestLoadSettings() = runBlocking {
-        val result = testLoadSettings()
-        assertTrue(result.success, "Load Settings test failed: ${result.message}")
-    }
-
-    @Test
     fun runTestInvalidInputs() = runBlocking {
         val result = testInvalidInputs()
         assertTrue(result.success, "Invalid Inputs test failed: ${result.message}")

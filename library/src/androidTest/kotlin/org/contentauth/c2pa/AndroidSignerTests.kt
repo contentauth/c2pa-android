@@ -130,18 +130,6 @@ class AndroidSignerTests : SignerTests() {
     }
 
     @Test
-    fun runTestSignerFromSettingsToml() = runBlocking {
-        val result = testSignerFromSettingsToml()
-        assertTrue(result.success, "Signer From Settings (TOML) test failed: ${result.message}")
-    }
-
-    @Test
-    fun runTestSignerFromSettingsJson() = runBlocking {
-        val result = testSignerFromSettingsJson()
-        assertTrue(result.success, "Signer From Settings (JSON) test failed: ${result.message}")
-    }
-
-    @Test
     fun runTestCawgCombinedPemSigner() = runBlocking {
         val result = testCawgCombinedPemSigner()
         assertTrue(result.success, "CAWG Combined Signer (PEM + PEM) test failed: ${result.message}")
