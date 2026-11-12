@@ -22,12 +22,27 @@ load_versions() {
   jq -r '.versions[]' "$filename"
 }
 
-verify_release() {
-  local tag="$1" release
-  release="$(gh api "repos/contentauth/c2pa-android/releases/tags/$tag")" || return 1
-  printf '%s' "$release" | jq -e --arg tag "$tag" '
-    type == "object" and .tag_name == $tag and .draft == false
-  ' >/dev/null || { fail "$tag is not a published GitHub release."; return 1; }
+published_releases() {
+  gh api --paginate "repos/contentauth/c2pa-android/releases?per_page=100" \
+    --jq '.[] | select(.draft == false) | .tag_name'
+}
+
+# The release workflow lists a stable release and pushes its tag before the release is published,
+# and leaves it a draft unless asked to publish it. Until then the release is left out; publishing
+# it fires the release trigger in docs.yml, which rebuilds the site with it. The releases endpoint
+# answers a draft's tag with a 404, so a draft is recognised as a listed tag with no published
+# release. A listed version that is not a tag at all is an error.
+select_versions() {
+  local root="$1" published="$2" tag
+  while IFS= read -r tag; do
+    if grep -Fxq -- "$tag" "$published"; then
+      printf '%s\n' "$tag"
+    elif git -C "$root" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+      printf 'Skipping %s: its GitHub release is not published.\n' "$tag" >&2
+    else
+      fail "$tag is listed in docs/versions.json but is not a tag."; return 1
+    fi
+  done
 }
 
 export_release() {
@@ -103,9 +118,11 @@ build_site() (
   output="$ROOT/build/docs-versioned"
   workspace="$(mktemp -d "$ROOT/build/versioned-docs-XXXXXX")"
   trap 'status=$?; if [[ -d "$workspace/previous" && ! -e "$output" ]]; then mv "$workspace/previous" "$output" || status=1; fi; rm -rf -- "$workspace"; exit "$status"' EXIT
-  load_versions "$ROOT/docs/versions.json" > "$workspace/versions"
+  load_versions "$ROOT/docs/versions.json" > "$workspace/listed"
+  published_releases > "$workspace/published"
+  select_versions "$ROOT" "$workspace/published" < "$workspace/listed" > "$workspace/versions"
   while IFS= read -r tag; do versions+=("$tag"); done < "$workspace/versions"
-  for tag in "${versions[@]}"; do verify_release "$tag"; done
+  (( ${#versions[@]} > 0 )) || { fail "None of the releases in docs/versions.json is published."; return 1; }
   for tag in "${versions[@]}"; do
     stage="$workspace/$tag"
     mkdir "$stage"

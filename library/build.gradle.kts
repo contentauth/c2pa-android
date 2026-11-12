@@ -10,11 +10,18 @@ files for the specific language governing permissions and limitations under
 each license.
 */
 
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
 import org.gradle.api.publish.maven.MavenPublication
 import java.io.File
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.security.DigestInputStream
+import java.security.MessageDigest
+import java.util.HexFormat
 import java.util.Properties
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 plugins {
@@ -22,6 +29,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("org.jetbrains.dokka")
     id("jacoco")
+    id("org.cyclonedx.bom") version "3.4.1"
     `maven-publish`
 }
 
@@ -149,6 +157,24 @@ dependencies {
 // JaCoCo configuration
 jacoco { toolVersion = "0.8.10" }
 
+// Version of the published artifact. The release workflow supplies it as CI_COMMIT_TAG and JitPack
+// as VERSION. There is deliberately no default: a release whose version did not arrive must fail
+// rather than publish and attest under a made-up one, since a published release cannot be redone.
+val releaseVersion: String? =
+    (System.getenv("CI_COMMIT_TAG") ?: System.getenv("VERSION").takeIf { System.getenv("JITPACK") == "true" })
+        ?.takeIf { it.isNotBlank() }
+
+gradle.taskGraph.whenReady {
+    val needsVersion = allTasks.any {
+        it.project == project && (it.name.startsWith("publish") || it.name == "cyclonedxDirectBom")
+    }
+    if (needsVersion && releaseVersion == null) {
+        throw GradleException(
+            "No release version: set CI_COMMIT_TAG (e.g. CI_COMMIT_TAG=1.2.3) to publish or to generate the SBOM.",
+        )
+    }
+}
+
 // Coverage report for instrumented tests only
 tasks.register<JacocoReport>("jacocoInstrumentedTestReport") {
     dependsOn("createDebugCoverageReport")
@@ -199,7 +225,7 @@ publishing {
             afterEvaluate { from(components["release"]) }
             groupId = "org.contentauth"
             artifactId = "c2pa"
-            version = System.getenv("CI_COMMIT_TAG") ?: "1.0.0-SNAPSHOT"
+            releaseVersion?.let { version = it }
         }
     }
     repositories {
@@ -218,6 +244,10 @@ publishing {
 // Native library download configuration
 val c2paVersion = project.properties["c2paVersion"] as String
 
+// rc releases are tagged c2pa-rc-v<version>, not c2pa-v<version> – upstream moved them out of the
+// c2pa-v* namespace (contentauth/c2pa-rs#2636). The asset filenames are unaffected.
+val c2paReleaseTag = (if (c2paVersion.contains("-rc.")) "c2pa-rc-" else "c2pa-") + c2paVersion
+
 // Optional. When set to a directory holding c2pa-<version>-<triple>.zip archives,
 // downloadNativeLibraries takes the native libraries from there instead of downloading
 // the release pinned by c2paVersion. Normally passed on the command line via
@@ -234,6 +264,135 @@ val architectures =
         "x86" to "i686-linux-android",
         "x86_64" to "x86_64-linux-android",
     )
+
+// CycloneDX SBOM configuration. The main component carries the coordinates of the "release"
+// publication above rather than the Gradle project's, so the SBOM names the artifact it ships with.
+//
+// The plugin inventories Gradle dependencies only, so the third-party native libraries in the AAR
+// are added afterwards. The c2pa-rs C library that downloadNativeLibraries fetches is described as
+// the c2pa-c-ffi crate it is built from and the c2pa crate it links statically, both at the version
+// pinned as c2paVersion. The C++ runtime that the c++_shared STL brings in is LLVM's libc++ from
+// the NDK, at the NDK version the build uses. Each ABI's copy of a library is hashed as it ships in
+// the AAR rather than as downloaded or as found in the NDK, because AGP rewrites the libraries
+// while packaging them.
+tasks.cyclonedxDirectBom {
+    componentGroup = "org.contentauth"
+    componentName = "c2pa"
+    releaseVersion?.let { componentVersion = it }
+    includeConfigs = listOf("releaseRuntimeClasspath")
+    jsonOutput.set(file("build/reports/sbom.json"))
+    xmlOutput.unsetConvention()
+
+    dependsOn("assembleRelease")
+    val sbomFile = jsonOutput
+    val aarFile = layout.buildDirectory.file("outputs/aar/c2pa-release.aar")
+    val nativeVersion = c2paVersion.removePrefix("v")
+    val releaseTag = c2paReleaseTag
+    val ndkVersion = android.ndkVersion
+    val abis = architectures.keys.toList()
+    val archiveDir = c2paArchiveDir
+    inputs.file(aarFile)
+    inputs.property("c2paVersion", c2paVersion)
+    inputs.property("ndkVersion", ndkVersion)
+    inputs.property("c2paArchiveDir", archiveDir?.absolutePath.orEmpty())
+
+    doFirst {
+        if (archiveDir != null) {
+            throw GradleException(
+                "The SBOM names the c2pa-rs release pinned by c2paVersion, so it cannot be generated " +
+                    "from the archives in c2paArchiveDir.",
+            )
+        }
+    }
+
+    doLast {
+        // One file component per ABI for each library, carrying the SHA-256 of the copy in the AAR.
+        val shipped =
+            ZipFile(aarFile.get().asFile).use { aar ->
+                listOf("libc2pa_c.so", "libc++_shared.so").associateWith { library ->
+                    abis.map { abi ->
+                        val path = "jni/$abi/$library"
+                        val entry = aar.getEntry(path) ?: throw GradleException("The AAR has no $path")
+                        val digest = MessageDigest.getInstance("SHA-256")
+                        DigestInputStream(aar.getInputStream(entry), digest).use {
+                            it.copyTo(OutputStream.nullOutputStream())
+                        }
+                        val sha256 = HexFormat.of().formatHex(digest.digest())
+                        mapOf(
+                            "type" to "file",
+                            "bom-ref" to "c2pa-release.aar!/$path",
+                            "name" to path,
+                            "hashes" to listOf(mapOf("alg" to "SHA-256", "content" to sha256)),
+                        )
+                    }
+                }
+            }
+
+        val ffiRef = "pkg:cargo/c2pa-c-ffi@$nativeVersion"
+        val sdkRef = "pkg:cargo/c2pa@$nativeVersion"
+        val licenses = listOf(mapOf("expression" to "MIT OR Apache-2.0"))
+        val ffi =
+            mapOf(
+                "type" to "library",
+                "bom-ref" to ffiRef,
+                "name" to "c2pa-c-ffi",
+                "version" to nativeVersion,
+                "description" to "c2pa-rs C library, packaged in the AAR as libc2pa_c.so for each ABI",
+                "licenses" to licenses,
+                "purl" to ffiRef,
+                "externalReferences" to
+                    listOf(
+                        mapOf("type" to "vcs", "url" to "https://github.com/contentauth/c2pa-rs"),
+                        mapOf(
+                            "type" to "distribution",
+                            "url" to "https://github.com/contentauth/c2pa-rs/releases/tag/$releaseTag",
+                        ),
+                    ),
+                "components" to shipped.getValue("libc2pa_c.so"),
+            )
+        val sdk =
+            mapOf(
+                "type" to "library",
+                "bom-ref" to sdkRef,
+                "name" to "c2pa",
+                "version" to nativeVersion,
+                "licenses" to licenses,
+                "purl" to sdkRef,
+            )
+        val libcxxRef = "pkg:generic/android-ndk/libc%2B%2B_shared@$ndkVersion"
+        val libcxx =
+            mapOf(
+                "type" to "library",
+                "bom-ref" to libcxxRef,
+                "name" to "libc++_shared",
+                "version" to ndkVersion,
+                "description" to
+                    "LLVM libc++ runtime from Android NDK $ndkVersion, packaged in the AAR as libc++_shared.so " +
+                    "for each ABI",
+                "licenses" to listOf(mapOf("expression" to "Apache-2.0 WITH LLVM-exception")),
+                "purl" to libcxxRef,
+                "externalReferences" to
+                    listOf(mapOf("type" to "website", "url" to "https://developer.android.com/ndk")),
+                "components" to shipped.getValue("libc++_shared.so"),
+            )
+
+        val sbom = sbomFile.get().asFile
+        @Suppress("UNCHECKED_CAST")
+        val bom = JsonSlurper().parse(sbom) as MutableMap<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        (bom.getValue("components") as MutableList<Any?>).addAll(listOf(ffi, sdk, libcxx))
+        @Suppress("UNCHECKED_CAST")
+        val dependencies = bom.getValue("dependencies") as MutableList<MutableMap<String, Any?>>
+        val rootRef = ((bom.getValue("metadata") as Map<*, *>)["component"] as Map<*, *>)["bom-ref"]
+        val root = dependencies.single { it["ref"] == rootRef }
+        @Suppress("UNCHECKED_CAST")
+        (root.getOrPut("dependsOn") { mutableListOf<Any?>() } as MutableList<Any?>).addAll(listOf(ffiRef, libcxxRef))
+        dependencies.add(mutableMapOf("ref" to ffiRef, "dependsOn" to listOf(sdkRef)))
+        dependencies.add(mutableMapOf("ref" to sdkRef, "dependsOn" to emptyList<String>()))
+        dependencies.add(mutableMapOf("ref" to libcxxRef, "dependsOn" to emptyList<String>()))
+        sbom.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(bom)))
+    }
+}
 
 tasks.register("setupDirectories") {
     val jniLibsDir = layout.projectDirectory.dir("src/main/jniLibs")
@@ -255,6 +414,7 @@ tasks.register("downloadNativeLibraries") {
     val destHeader = projectDir.file("src/main/jni/c2pa.h")
     val archMap = architectures.toMap()
     val version = c2paVersion
+    val releaseTag = c2paReleaseTag
     val archiveDir = c2paArchiveDir
 
     doLast {
@@ -316,14 +476,8 @@ tasks.register("downloadNativeLibraries") {
                     } else {
                         val downloaded = downloadDir.resolve("$arch.zip")
 
-                        // rc releases are tagged c2pa-rc-v<version>, not
-                        // c2pa-v<version> – upstream moved them out of the
-                        // c2pa-v* namespace (contentauth/c2pa-rs#2636). The
-                        // asset filenames are unaffected; only the release
-                        // tag in this URL needs the rc-specific prefix.
-                        val tagPrefix = if (version.contains("-rc.")) "c2pa-rc-" else "c2pa-"
                         val url =
-                            "https://github.com/contentauth/c2pa-rs/releases/download/$tagPrefix$version/c2pa-$version-$target.zip"
+                            "https://github.com/contentauth/c2pa-rs/releases/download/$releaseTag/c2pa-$version-$target.zip"
                         println("Downloading from: $url")
                         if (!downloaded.exists()) {
                             val connection = URI(url).toURL().openConnection() as HttpURLConnection
