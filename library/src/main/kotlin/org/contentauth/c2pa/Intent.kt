@@ -168,7 +168,7 @@ enum class DigitalSourceType {
     fun toIptcUrl(): String =
         when (this) {
             EMPTY -> "http://c2pa.org/digitalsourcetype/empty"
-            TRAINED_ALGORITHMIC_DATA -> "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicData"
+            TRAINED_ALGORITHMIC_DATA -> "http://c2pa.org/digitalsourcetype/trainedAlgorithmicData"
             DIGITAL_CAPTURE -> "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
             COMPUTATIONAL_CAPTURE -> "http://cv.iptc.org/newscodes/digitalsourcetype/computationalCapture"
             NEGATIVE_FILM -> "http://cv.iptc.org/newscodes/digitalsourcetype/negativeFilm"

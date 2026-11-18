@@ -24,7 +24,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class HashedUri(
-    val url: String? = null,
-    val hash: String? = null,
+    val url: String,
+    val hash: String,
     val alg: String? = null,
 )

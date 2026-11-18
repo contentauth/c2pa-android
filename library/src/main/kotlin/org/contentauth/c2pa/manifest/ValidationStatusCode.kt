@@ -12,443 +12,458 @@ each license.
 
 package org.contentauth.c2pa.manifest
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-
 /**
- * Validation status codes as defined in the C2PA 2.3 specification (Section 15).
+ * Validation status codes that c2pa-rs reports, as defined by the C2PA specification and the
+ * CAWG identity assertion specification.
  *
  * These codes indicate the result of various validation checks performed on manifests.
  * Codes are organized into three categories: success, informational, and failure.
  *
+ * The set of codes is open-ended: a newer SDK or another validator can report a code that is
+ * not listed here. [ValidationStatus.code] therefore holds the code as a string, and
+ * [ValidationStatus.statusCode] resolves it to an entry of this enum when one exists.
+ *
+ * @property code The status code as it appears in manifest JSON.
  * @see ValidationStatus
  */
-@Serializable
-enum class ValidationStatusCode {
+enum class ValidationStatusCode(val code: String) {
 
     // --- Success codes ---
 
     /** The assertion is accessible for validation. */
-    @SerialName("assertion.accessible")
-    ASSERTION_ACCESSIBLE,
+    ASSERTION_ACCESSIBLE("assertion.accessible"),
 
     /** The alternative content representation hash matches. */
-    @SerialName("assertion.alternativeContentRepresentation.match")
-    ASSERTION_ALT_CONTENT_MATCH,
+    ASSERTION_ALT_CONTENT_MATCH("assertion.alternativeContentRepresentation.match"),
 
     /** The BMFF hash matches the asset. */
-    @SerialName("assertion.bmffHash.match")
-    ASSERTION_BMFF_HASH_MATCH,
+    ASSERTION_BMFF_HASH_MATCH("assertion.bmffHash.match"),
 
     /** The box hash matches the asset. */
-    @SerialName("assertion.boxesHash.match")
-    ASSERTION_BOXES_HASH_MATCH,
+    ASSERTION_BOXES_HASH_MATCH("assertion.boxesHash.match"),
 
     /** The collection hash matches. */
-    @SerialName("assertion.collectionHash.match")
-    ASSERTION_COLLECTION_HASH_MATCH,
+    ASSERTION_COLLECTION_HASH_MATCH("assertion.collectionHash.match"),
 
     /** The data hash matches the asset. */
-    @SerialName("assertion.dataHash.match")
-    ASSERTION_DATA_HASH_MATCH,
+    ASSERTION_DATA_HASH_MATCH("assertion.dataHash.match"),
 
     /** The hashed URI reference matches. */
-    @SerialName("assertion.hashedURI.match")
-    ASSERTION_HASHED_URI_MATCH,
+    ASSERTION_HASHED_URI_MATCH("assertion.hashedURI.match"),
 
     /** The multi-asset hash matches. */
-    @SerialName("assertion.multiAssetHash.match")
-    ASSERTION_MULTI_ASSET_HASH_MATCH,
+    ASSERTION_MULTI_ASSET_HASH_MATCH("assertion.multiAssetHash.match"),
 
     /** The claim signature is within its validity period. */
-    @SerialName("claimSignature.insideValidity")
-    CLAIM_SIGNATURE_INSIDE_VALIDITY,
+    CLAIM_SIGNATURE_INSIDE_VALIDITY("claimSignature.insideValidity"),
 
     /** The claim signature has been validated. */
-    @SerialName("claimSignature.validated")
-    CLAIM_SIGNATURE_VALIDATED,
+    CLAIM_SIGNATURE_VALIDATED("claimSignature.validated"),
 
     /** The ingredient's claim signature has been validated. */
-    @SerialName("ingredient.claimSignature.validated")
-    INGREDIENT_CLAIM_SIGNATURE_VALIDATED,
+    INGREDIENT_CLAIM_SIGNATURE_VALIDATED("ingredient.claimSignature.validated"),
 
     /** The ingredient's manifest has been validated. */
-    @SerialName("ingredient.manifest.validated")
-    INGREDIENT_MANIFEST_VALIDATED,
+    INGREDIENT_MANIFEST_VALIDATED("ingredient.manifest.validated"),
 
     /** The signing credential's OCSP status is not revoked. */
-    @SerialName("signingCredential.ocsp.notRevoked")
-    SIGNING_CREDENTIAL_OCSP_NOT_REVOKED,
+    SIGNING_CREDENTIAL_OCSP_NOT_REVOKED("signingCredential.ocsp.notRevoked"),
 
     /** The signing credential is trusted. */
-    @SerialName("signingCredential.trusted")
-    SIGNING_CREDENTIAL_TRUSTED,
+    SIGNING_CREDENTIAL_TRUSTED("signingCredential.trusted"),
 
     /** The timestamp is trusted. */
-    @SerialName("timeStamp.trusted")
-    TIMESTAMP_TRUSTED,
+    TIMESTAMP_TRUSTED("timeStamp.trusted"),
 
     /** The timestamp has been validated. */
-    @SerialName("timeStamp.validated")
-    TIMESTAMP_VALIDATED,
+    TIMESTAMP_VALIDATED("timeStamp.validated"),
+
+    /** A CAWG identity claims aggregation credential was validated. */
+    CAWG_ICA_CREDENTIAL_VALID("cawg.ica.credential_valid"),
+
+    /** The CAWG identity claims aggregation time stamp was validated. */
+    CAWG_ICA_TIME_STAMP_VALIDATED("cawg.ica.time_stamp.validated"),
+
+    /** The CAWG identity assertion is well formed. */
+    CAWG_IDENTITY_WELL_FORMED("cawg.identity.well-formed"),
+
+    /** The CAWG identity assertion's X.509 signing certificate chains to a trust anchor. */
+    CAWG_X509_CREDENTIAL_TRUSTED("cawg.x509.credential.trusted"),
+
+    /** The CAWG identity assertion's X.509 signature was validated. */
+    CAWG_X509_SIGNATURE_VALIDATED("cawg.x509.signature.validated"),
 
     // --- Informational codes ---
 
     /** The algorithm used is deprecated. */
-    @SerialName("algorithm.deprecated")
-    ALGORITHM_DEPRECATED,
+    ALGORITHM_DEPRECATED("algorithm.deprecated"),
 
     /** The BMFF hash has additional exclusions present. */
-    @SerialName("assertion.bmffHash.additionalExclusionsPresent")
-    ASSERTION_BMFF_HASH_ADDITIONAL_EXCLUSIONS,
+    ASSERTION_BMFF_HASH_ADDITIONAL_EXCLUSIONS("assertion.bmffHash.additionalExclusionsPresent"),
 
     /** The box hash has additional exclusions present. */
-    @SerialName("assertion.boxesHash.additionalExclusionsPresent")
-    ASSERTION_BOXES_HASH_ADDITIONAL_EXCLUSIONS,
+    ASSERTION_BOXES_HASH_ADDITIONAL_EXCLUSIONS("assertion.boxesHash.additionalExclusionsPresent"),
 
     /** The data hash has additional exclusions present. */
-    @SerialName("assertion.dataHash.additionalExclusionsPresent")
-    ASSERTION_DATA_HASH_ADDITIONAL_EXCLUSIONS,
+    ASSERTION_DATA_HASH_ADDITIONAL_EXCLUSIONS("assertion.dataHash.additionalExclusionsPresent"),
 
     /** The ingredient has unknown provenance. */
-    @SerialName("ingredient.unknownProvenance")
-    INGREDIENT_UNKNOWN_PROVENANCE,
+    INGREDIENT_UNKNOWN_PROVENANCE("ingredient.unknownProvenance"),
 
     /** The OCSP responder for the signing credential is inaccessible. */
-    @SerialName("signingCredential.ocsp.inaccessible")
-    SIGNING_CREDENTIAL_OCSP_INACCESSIBLE,
+    SIGNING_CREDENTIAL_OCSP_INACCESSIBLE("signingCredential.ocsp.inaccessible"),
 
     /** OCSP checking was skipped for the signing credential. */
-    @SerialName("signingCredential.ocsp.skipped")
-    SIGNING_CREDENTIAL_OCSP_SKIPPED,
+    SIGNING_CREDENTIAL_OCSP_SKIPPED("signingCredential.ocsp.skipped"),
 
     /** The OCSP status of the signing credential is unknown. */
-    @SerialName("signingCredential.ocsp.unknown")
-    SIGNING_CREDENTIAL_OCSP_UNKNOWN,
+    SIGNING_CREDENTIAL_OCSP_UNKNOWN("signingCredential.ocsp.unknown"),
 
     /** The time of signing is within the credential validity period. */
-    @SerialName("timeOfSigning.insideValidity")
-    TIME_OF_SIGNING_INSIDE_VALIDITY,
+    TIME_OF_SIGNING_INSIDE_VALIDITY("timeOfSigning.insideValidity"),
 
     /** The time of signing is outside the credential validity period. */
-    @SerialName("timeOfSigning.outsideValidity")
-    TIME_OF_SIGNING_OUTSIDE_VALIDITY,
+    TIME_OF_SIGNING_OUTSIDE_VALIDITY("timeOfSigning.outsideValidity"),
 
     /** The timestamp credential is invalid. */
-    @SerialName("timeStamp.credentialInvalid")
-    TIMESTAMP_CREDENTIAL_INVALID,
+    TIMESTAMP_CREDENTIAL_INVALID("timeStamp.credentialInvalid"),
 
     /** The timestamp is malformed. */
-    @SerialName("timeStamp.malformed")
-    TIMESTAMP_MALFORMED,
+    TIMESTAMP_MALFORMED("timeStamp.malformed"),
 
     /** The timestamp does not match. */
-    @SerialName("timeStamp.mismatch")
-    TIMESTAMP_MISMATCH,
+    TIMESTAMP_MISMATCH("timeStamp.mismatch"),
 
     /** The timestamp is outside its validity period. */
-    @SerialName("timeStamp.outsideValidity")
-    TIMESTAMP_OUTSIDE_VALIDITY,
+    TIMESTAMP_OUTSIDE_VALIDITY("timeStamp.outsideValidity"),
 
     /** The timestamp is untrusted. */
-    @SerialName("timeStamp.untrusted")
-    TIMESTAMP_UNTRUSTED,
+    TIMESTAMP_UNTRUSTED("timeStamp.untrusted"),
+
+    /** The CAWG identity claims aggregation issuer is not on the trusted issuer list. */
+    CAWG_ICA_UNTRUSTED_ISSUER("cawg.ica.untrusted_issuer"),
+
+    /** The manifest cannot be interpreted by this version of the SDK. */
+    MANIFEST_UNKNOWN_PROVENANCE("manifest.unknownProvenance"),
 
     // --- Failure codes ---
 
     /** The algorithm used is unsupported. */
-    @SerialName("algorithm.unsupported")
-    ALGORITHM_UNSUPPORTED,
+    ALGORITHM_UNSUPPORTED("algorithm.unsupported"),
 
     /** The action assertion has an ingredient mismatch. */
-    @SerialName("assertion.action.ingredientMismatch")
-    ASSERTION_ACTION_INGREDIENT_MISMATCH,
+    ASSERTION_ACTION_INGREDIENT_MISMATCH("assertion.action.ingredientMismatch"),
 
     /** The action assertion is malformed. */
-    @SerialName("assertion.action.malformed")
-    ASSERTION_ACTION_MALFORMED,
+    ASSERTION_ACTION_MALFORMED("assertion.action.malformed"),
 
     /** The action assertion has missing information. */
-    @SerialName("assertion.action.missing")
-    ASSERTION_ACTION_MISSING,
+    ASSERTION_ACTION_MISSING("assertion.action.missing"),
 
     /** An action assertion was redacted. */
-    @SerialName("assertion.action.redacted")
-    ASSERTION_ACTION_REDACTED,
+    ASSERTION_ACTION_REDACTED("assertion.action.redacted"),
 
     /** The action assertion has a redaction mismatch. */
-    @SerialName("assertion.action.redactionMismatch")
-    ASSERTION_ACTION_REDACTION_MISMATCH,
+    ASSERTION_ACTION_REDACTION_MISMATCH("assertion.action.redactionMismatch"),
 
     /** The action assertion is missing a required soft binding. */
-    @SerialName("assertion.action.softBindingMissing")
-    ASSERTION_ACTION_SOFT_BINDING_MISSING,
+    ASSERTION_ACTION_SOFT_BINDING_MISSING("assertion.action.softBindingMissing"),
 
     /** The alternative content representation is malformed. */
-    @SerialName("assertion.alternativeContentRepresentation.malformed")
-    ASSERTION_ALT_CONTENT_MALFORMED,
+    ASSERTION_ALT_CONTENT_MALFORMED("assertion.alternativeContentRepresentation.malformed"),
 
     /** The alternative content representation hash does not match. */
-    @SerialName("assertion.alternativeContentRepresentation.hashMismatch")
-    ASSERTION_ALT_CONTENT_HASH_MISMATCH,
+    ASSERTION_ALT_CONTENT_HASH_MISMATCH("assertion.alternativeContentRepresentation.hashMismatch"),
 
     /** The alternative content representation is missing. */
-    @SerialName("assertion.alternativeContentRepresentation.missing")
-    ASSERTION_ALT_CONTENT_MISSING,
+    ASSERTION_ALT_CONTENT_MISSING("assertion.alternativeContentRepresentation.missing"),
 
     /** The BMFF hash is malformed. */
-    @SerialName("assertion.bmffHash.malformed")
-    ASSERTION_BMFF_HASH_MALFORMED,
+    ASSERTION_BMFF_HASH_MALFORMED("assertion.bmffHash.malformed"),
 
     /** The BMFF hash does not match. */
-    @SerialName("assertion.bmffHash.mismatch")
-    ASSERTION_BMFF_HASH_MISMATCH,
+    ASSERTION_BMFF_HASH_MISMATCH("assertion.bmffHash.mismatch"),
 
     /** The box hash is malformed. */
-    @SerialName("assertion.boxesHash.malformed")
-    ASSERTION_BOXES_HASH_MALFORMED,
+    ASSERTION_BOXES_HASH_MALFORMED("assertion.boxesHash.malformed"),
 
     /** The box hash does not match. */
-    @SerialName("assertion.boxesHash.mismatch")
-    ASSERTION_BOXES_HASH_MISMATCH,
+    ASSERTION_BOXES_HASH_MISMATCH("assertion.boxesHash.mismatch"),
 
     /** An unknown box was encountered in the box hash. */
-    @SerialName("assertion.boxesHash.unknownBox")
-    ASSERTION_BOXES_HASH_UNKNOWN_BOX,
+    ASSERTION_BOXES_HASH_UNKNOWN_BOX("assertion.boxesHash.unknownBox"),
 
     /** The CBOR assertion data is invalid. */
-    @SerialName("assertion.cbor.invalid")
-    ASSERTION_CBOR_INVALID,
+    ASSERTION_CBOR_INVALID("assertion.cbor.invalid"),
 
     /** Cloud data assertion has incorrect actions reference. */
-    @SerialName("assertion.cloud-data.actions")
-    ASSERTION_CLOUD_DATA_ACTIONS,
+    ASSERTION_CLOUD_DATA_ACTIONS("assertion.cloud-data.actions"),
 
     /** Cloud data assertion has incorrect hard binding reference. */
-    @SerialName("assertion.cloud-data.hardBinding")
-    ASSERTION_CLOUD_DATA_HARD_BINDING,
+    ASSERTION_CLOUD_DATA_HARD_BINDING("assertion.cloud-data.hardBinding"),
 
     /** Cloud data assertion label does not match. */
-    @SerialName("assertion.cloud-data.labelMismatch")
-    ASSERTION_CLOUD_DATA_LABEL_MISMATCH,
+    ASSERTION_CLOUD_DATA_LABEL_MISMATCH("assertion.cloud-data.labelMismatch"),
 
     /** Cloud data assertion is malformed. */
-    @SerialName("assertion.cloud-data.malformed")
-    ASSERTION_CLOUD_DATA_MALFORMED,
+    ASSERTION_CLOUD_DATA_MALFORMED("assertion.cloud-data.malformed"),
 
     /** The collection hash has an incorrect file count. */
-    @SerialName("assertion.collectionHash.incorrectFileCount")
-    ASSERTION_COLLECTION_HASH_INCORRECT_FILE_COUNT,
+    ASSERTION_COLLECTION_HASH_INCORRECT_FILE_COUNT("assertion.collectionHash.incorrectFileCount"),
 
     /** The collection hash has an invalid URI. */
-    @SerialName("assertion.collectionHash.invalidURI")
-    ASSERTION_COLLECTION_HASH_INVALID_URI,
+    ASSERTION_COLLECTION_HASH_INVALID_URI("assertion.collectionHash.invalidURI"),
 
     /** The collection hash is malformed. */
-    @SerialName("assertion.collectionHash.malformed")
-    ASSERTION_COLLECTION_HASH_MALFORMED,
+    ASSERTION_COLLECTION_HASH_MALFORMED("assertion.collectionHash.malformed"),
 
     /** The collection hash does not match. */
-    @SerialName("assertion.collectionHash.mismatch")
-    ASSERTION_COLLECTION_HASH_MISMATCH,
+    ASSERTION_COLLECTION_HASH_MISMATCH("assertion.collectionHash.mismatch"),
 
     /** The data hash is malformed. */
-    @SerialName("assertion.dataHash.malformed")
-    ASSERTION_DATA_HASH_MALFORMED,
+    ASSERTION_DATA_HASH_MALFORMED("assertion.dataHash.malformed"),
 
     /** The data hash does not match. */
-    @SerialName("assertion.dataHash.mismatch")
-    ASSERTION_DATA_HASH_MISMATCH,
+    ASSERTION_DATA_HASH_MISMATCH("assertion.dataHash.mismatch"),
 
     /** The external reference has incorrect actions. */
-    @SerialName("assertion.external-reference.actions")
-    ASSERTION_EXTERNAL_REFERENCE_ACTIONS,
+    ASSERTION_EXTERNAL_REFERENCE_ACTIONS("assertion.external-reference.actions"),
 
     /** The external reference was created incorrectly. */
-    @SerialName("assertion.external-reference.created")
-    ASSERTION_EXTERNAL_REFERENCE_CREATED,
+    ASSERTION_EXTERNAL_REFERENCE_CREATED("assertion.external-reference.created"),
 
     /** The external reference has incorrect hard binding. */
-    @SerialName("assertion.external-reference.hardBinding")
-    ASSERTION_EXTERNAL_REFERENCE_HARD_BINDING,
+    ASSERTION_EXTERNAL_REFERENCE_HARD_BINDING("assertion.external-reference.hardBinding"),
 
     /** The external reference is malformed. */
-    @SerialName("assertion.external-reference.malformed")
-    ASSERTION_EXTERNAL_REFERENCE_MALFORMED,
+    ASSERTION_EXTERNAL_REFERENCE_MALFORMED("assertion.external-reference.malformed"),
 
     /** A hard binding assertion was redacted. */
-    @SerialName("assertion.hardBinding.redacted")
-    ASSERTION_HARD_BINDING_REDACTED,
+    ASSERTION_HARD_BINDING_REDACTED("assertion.hardBinding.redacted"),
 
     /** The hashed URI does not match. */
-    @SerialName("assertion.hashedURI.mismatch")
-    ASSERTION_HASHED_URI_MISMATCH,
+    ASSERTION_HASHED_URI_MISMATCH("assertion.hashedURI.mismatch"),
 
     /** The assertion is inaccessible. */
-    @SerialName("assertion.inaccessible")
-    ASSERTION_INACCESSIBLE,
+    ASSERTION_INACCESSIBLE("assertion.inaccessible"),
 
     /** The ingredient assertion is malformed. */
-    @SerialName("assertion.ingredient.malformed")
-    ASSERTION_INGREDIENT_MALFORMED,
+    ASSERTION_INGREDIENT_MALFORMED("assertion.ingredient.malformed"),
 
     /** The JSON assertion data is invalid. */
-    @SerialName("assertion.json.invalid")
-    ASSERTION_JSON_INVALID,
+    ASSERTION_JSON_INVALID("assertion.json.invalid"),
 
     /** The assertion is missing. */
-    @SerialName("assertion.missing")
-    ASSERTION_MISSING,
+    ASSERTION_MISSING("assertion.missing"),
 
     /** The multi-asset hash is malformed. */
-    @SerialName("assertion.multiAssetHash.malformed")
-    ASSERTION_MULTI_ASSET_HASH_MALFORMED,
+    ASSERTION_MULTI_ASSET_HASH_MALFORMED("assertion.multiAssetHash.malformed"),
 
     /** The multi-asset hash has a missing part. */
-    @SerialName("assertion.multiAssetHash.missingPart")
-    ASSERTION_MULTI_ASSET_HASH_MISSING_PART,
+    ASSERTION_MULTI_ASSET_HASH_MISSING_PART("assertion.multiAssetHash.missingPart"),
 
     /** The multi-asset hash does not match. */
-    @SerialName("assertion.multiAssetHash.mismatch")
-    ASSERTION_MULTI_ASSET_HASH_MISMATCH,
+    ASSERTION_MULTI_ASSET_HASH_MISMATCH("assertion.multiAssetHash.mismatch"),
 
     /** Multiple hard bindings were found. */
-    @SerialName("assertion.multipleHardBindings")
-    ASSERTION_MULTIPLE_HARD_BINDINGS,
+    ASSERTION_MULTIPLE_HARD_BINDINGS("assertion.multipleHardBindings"),
 
     /** The assertion was not redacted as expected. */
-    @SerialName("assertion.notRedacted")
-    ASSERTION_NOT_REDACTED,
+    ASSERTION_NOT_REDACTED("assertion.notRedacted"),
 
     /** The assertion is outside the manifest. */
-    @SerialName("assertion.outsideManifest")
-    ASSERTION_OUTSIDE_MANIFEST,
+    ASSERTION_OUTSIDE_MANIFEST("assertion.outsideManifest"),
 
     /** An assertion attempted to redact itself. */
-    @SerialName("assertion.selfRedacted")
-    ASSERTION_SELF_REDACTED,
+    ASSERTION_SELF_REDACTED("assertion.selfRedacted"),
 
     /** The assertion timestamp is malformed. */
-    @SerialName("assertion.timestamp.malformed")
-    ASSERTION_TIMESTAMP_MALFORMED,
+    ASSERTION_TIMESTAMP_MALFORMED("assertion.timestamp.malformed"),
 
     /** An undeclared assertion was found. */
-    @SerialName("assertion.undeclared")
-    ASSERTION_UNDECLARED,
+    ASSERTION_UNDECLARED("assertion.undeclared"),
 
     /** The claim CBOR data is invalid. */
-    @SerialName("claim.cbor.invalid")
-    CLAIM_CBOR_INVALID,
+    CLAIM_CBOR_INVALID("claim.cbor.invalid"),
 
     /** The claim is missing required hard bindings. */
-    @SerialName("claim.hardBindings.missing")
-    CLAIM_HARD_BINDINGS_MISSING,
+    CLAIM_HARD_BINDINGS_MISSING("claim.hardBindings.missing"),
 
     /** The claim is malformed. */
-    @SerialName("claim.malformed")
-    CLAIM_MALFORMED,
+    CLAIM_MALFORMED("claim.malformed"),
 
     /** The claim is missing. */
-    @SerialName("claim.missing")
-    CLAIM_MISSING,
+    CLAIM_MISSING("claim.missing"),
 
     /** Multiple claims were found. */
-    @SerialName("claim.multiple")
-    CLAIM_MULTIPLE,
+    CLAIM_MULTIPLE("claim.multiple"),
 
     /** The claim signature does not match. */
-    @SerialName("claimSignature.mismatch")
-    CLAIM_SIGNATURE_MISMATCH,
+    CLAIM_SIGNATURE_MISMATCH("claimSignature.mismatch"),
 
     /** The claim signature is missing. */
-    @SerialName("claimSignature.missing")
-    CLAIM_SIGNATURE_MISSING,
+    CLAIM_SIGNATURE_MISSING("claimSignature.missing"),
 
     /** The claim signature is outside its validity period. */
-    @SerialName("claimSignature.outsideValidity")
-    CLAIM_SIGNATURE_OUTSIDE_VALIDITY,
+    CLAIM_SIGNATURE_OUTSIDE_VALIDITY("claimSignature.outsideValidity"),
 
     /** A general error occurred. */
-    @SerialName("general.error")
-    GENERAL_ERROR,
+    GENERAL_ERROR("general.error"),
 
     /** A hashed URI reference is missing. */
-    @SerialName("hashedURI.missing")
-    HASHED_URI_MISSING,
+    HASHED_URI_MISSING("hashedURI.missing"),
 
     /** A hashed URI reference does not match. */
-    @SerialName("hashedURI.mismatch")
-    HASHED_URI_MISMATCH,
+    HASHED_URI_MISMATCH("hashedURI.mismatch"),
 
     /** The ingredient's claim signature is missing. */
-    @SerialName("ingredient.claimSignature.missing")
-    INGREDIENT_CLAIM_SIGNATURE_MISSING,
+    INGREDIENT_CLAIM_SIGNATURE_MISSING("ingredient.claimSignature.missing"),
 
     /** The ingredient's claim signature does not match. */
-    @SerialName("ingredient.claimSignature.mismatch")
-    INGREDIENT_CLAIM_SIGNATURE_MISMATCH,
+    INGREDIENT_CLAIM_SIGNATURE_MISMATCH("ingredient.claimSignature.mismatch"),
 
     /** The ingredient's hashed URI does not match. */
-    @SerialName("ingredient.hashedURI.mismatch")
-    INGREDIENT_HASHED_URI_MISMATCH,
+    INGREDIENT_HASHED_URI_MISMATCH("ingredient.hashedURI.mismatch"),
 
     /** The ingredient's manifest is missing. */
-    @SerialName("ingredient.manifest.missing")
-    INGREDIENT_MANIFEST_MISSING,
+    INGREDIENT_MANIFEST_MISSING("ingredient.manifest.missing"),
 
     /** The ingredient's manifest does not match. */
-    @SerialName("ingredient.manifest.mismatch")
-    INGREDIENT_MANIFEST_MISMATCH,
+    INGREDIENT_MANIFEST_MISMATCH("ingredient.manifest.mismatch"),
 
     /** A compressed manifest is invalid. */
-    @SerialName("manifest.compressed.invalid")
-    MANIFEST_COMPRESSED_INVALID,
+    MANIFEST_COMPRESSED_INVALID("manifest.compressed.invalid"),
 
     /** The manifest is inaccessible. */
-    @SerialName("manifest.inaccessible")
-    MANIFEST_INACCESSIBLE,
+    MANIFEST_INACCESSIBLE("manifest.inaccessible"),
 
     /** The manifest is missing. */
-    @SerialName("manifest.missing")
-    MANIFEST_MISSING,
+    MANIFEST_MISSING("manifest.missing"),
 
     /** The manifest has multiple parents. */
-    @SerialName("manifest.multipleParents")
-    MANIFEST_MULTIPLE_PARENTS,
+    MANIFEST_MULTIPLE_PARENTS("manifest.multipleParents"),
 
     /** The manifest timestamp is invalid. */
-    @SerialName("manifest.timestamp.invalid")
-    MANIFEST_TIMESTAMP_INVALID,
+    MANIFEST_TIMESTAMP_INVALID("manifest.timestamp.invalid"),
 
     /** The manifest timestamp has wrong parents. */
-    @SerialName("manifest.timestamp.wrongParents")
-    MANIFEST_TIMESTAMP_WRONG_PARENTS,
+    MANIFEST_TIMESTAMP_WRONG_PARENTS("manifest.timestamp.wrongParents"),
 
     /** The manifest update is invalid. */
-    @SerialName("manifest.update.invalid")
-    MANIFEST_UPDATE_INVALID,
+    MANIFEST_UPDATE_INVALID("manifest.update.invalid"),
 
     /** The manifest update has wrong parents. */
-    @SerialName("manifest.update.wrongParents")
-    MANIFEST_UPDATE_WRONG_PARENTS,
+    MANIFEST_UPDATE_WRONG_PARENTS("manifest.update.wrongParents"),
 
     /** The signing credential is expired. */
-    @SerialName("signingCredential.expired")
-    SIGNING_CREDENTIAL_EXPIRED,
+    SIGNING_CREDENTIAL_EXPIRED("signingCredential.expired"),
 
     /** The signing credential is invalid. */
-    @SerialName("signingCredential.invalid")
-    SIGNING_CREDENTIAL_INVALID,
+    SIGNING_CREDENTIAL_INVALID("signingCredential.invalid"),
 
     /** The signing credential has been revoked (via OCSP). */
-    @SerialName("signingCredential.ocsp.revoked")
-    SIGNING_CREDENTIAL_OCSP_REVOKED,
+    SIGNING_CREDENTIAL_OCSP_REVOKED("signingCredential.ocsp.revoked"),
 
     /** The signing credential's OCSP revocation status (legacy code). */
-    @SerialName("signingCredential.revoked")
-    SIGNING_CREDENTIAL_REVOKED,
+    SIGNING_CREDENTIAL_REVOKED("signingCredential.revoked"),
 
     /** The signing credential is untrusted. */
-    @SerialName("signingCredential.untrusted")
-    SIGNING_CREDENTIAL_UNTRUSTED,
+    SIGNING_CREDENTIAL_UNTRUSTED("signingCredential.untrusted"),
+
+    /** The metadata assertion contains a field that is not allowed. */
+    ASSERTION_METADATA_DISALLOWED("assertion.metadata.disallowed"),
+
+    /** A required field is not present in an assertion. */
+    ASSERTION_REQUIRED_MISSING("assertion.required.missing"),
+
+    /** The DID document for a CAWG identity claims aggregation credential is unavailable. */
+    CAWG_ICA_DID_UNAVAILABLE("cawg.ica.did_unavailable"),
+
+    /** A CAWG identity claims aggregation credential uses an invalid algorithm. */
+    CAWG_ICA_INVALID_ALG("cawg.ica.invalid_alg"),
+
+    /** A CAWG identity claims aggregation credential has an invalid content type. */
+    CAWG_ICA_INVALID_CONTENT_TYPE("cawg.ica.invalid_content_type"),
+
+    /** A CAWG identity claims aggregation COSE_Sign1 structure is invalid. */
+    CAWG_ICA_INVALID_COSE_SIGN1("cawg.ica.invalid_cose_sign1"),
+
+    /** The DID document for a CAWG identity claims aggregation credential is invalid. */
+    CAWG_ICA_INVALID_DID_DOCUMENT("cawg.ica.invalid_did_document"),
+
+    /** A CAWG identity claims aggregation issuer is invalid. */
+    CAWG_ICA_INVALID_ISSUER("cawg.ica.invalid_issuer"),
+
+    /** A CAWG identity claims aggregation verifiable credential is invalid. */
+    CAWG_ICA_INVALID_VERIFIABLE_CREDENTIAL("cawg.ica.invalid_verifiable_credential"),
+
+    /** The CAWG identity claims aggregation signature does not match. */
+    CAWG_ICA_SIGNATURE_MISMATCH("cawg.ica.signature_mismatch"),
+
+    /** A CAWG identity claims aggregation signer payload does not match the asset. */
+    CAWG_ICA_SIGNER_PAYLOAD_MISMATCH("cawg.ica.signer_payload.mismatch"),
+
+    /** The CAWG identity claims aggregation time stamp is invalid. */
+    CAWG_ICA_TIME_STAMP_INVALID("cawg.ica.time_stamp.invalid"),
+
+    /** The valid-from time in a CAWG identity claims aggregation credential is invalid. */
+    CAWG_ICA_VALID_FROM_INVALID("cawg.ica.valid_from.invalid"),
+
+    /** The valid-from time is missing from a CAWG identity claims aggregation credential. */
+    CAWG_ICA_VALID_FROM_MISSING("cawg.ica.valid_from.missing"),
+
+    /** The valid-until time in a CAWG identity claims aggregation credential is invalid. */
+    CAWG_ICA_VALID_UNTIL_INVALID("cawg.ica.valid_until.invalid"),
+
+    /** A CAWG identity assertion references the same assertion more than once. */
+    CAWG_IDENTITY_ASSERTION_DUPLICATE("cawg.identity.assertion.duplicate"),
+
+    /** A referenced CAWG identity assertion is missing or has a mismatched hash. */
+    CAWG_IDENTITY_ASSERTION_MISMATCH("cawg.identity.assertion.mismatch"),
+
+    /** The CAWG identity assertion CBOR is not valid. */
+    CAWG_IDENTITY_CBOR_INVALID("cawg.identity.cbor.invalid"),
+
+    /** A CAWG identity assertion does not reference a hard-binding assertion. */
+    CAWG_IDENTITY_HARD_BINDING_MISSING("cawg.identity.hard_binding_missing"),
+
+    /** The CAWG identity assertion padding is invalid. */
+    CAWG_IDENTITY_PAD_INVALID("cawg.identity.pad.invalid"),
+
+    /** The CAWG identity assertion signature type is unknown. */
+    CAWG_IDENTITY_SIG_TYPE_UNKNOWN("cawg.identity.sig_type.unknown"),
+
+    /** The CAWG identity assertion's X.509 signature algorithm is not supported. */
+    CAWG_X509_ALGORITHM_UNSUPPORTED("cawg.x509.algorithm.unsupported"),
+
+    /** The CAWG identity assertion's X.509 certificate does not meet the certificate profile. */
+    CAWG_X509_CREDENTIAL_INVALID("cawg.x509.credential.invalid"),
+
+    /** The CAWG identity assertion's X.509 certificate does not chain to a trust anchor. */
+    CAWG_X509_CREDENTIAL_UNTRUSTED("cawg.x509.credential.untrusted"),
+
+    /** The CAWG identity assertion's X.509 signature could not be validated. */
+    CAWG_X509_SIGNATURE_MISMATCH("cawg.x509.signature.mismatch"),
+
+    /** The time of signing is outside the validity period of the CAWG X.509 certificate chain. */
+    CAWG_X509_SIGNATURE_OUTSIDE_VALIDITY("cawg.x509.signature.outside_validity"),
+
+    /** A required field is not present in the claim. */
+    CLAIM_REQUIRED_MISSING("claim.required.missing"),
+
+    /** The manifest is not referenced by an ingredient assertion. */
+    MANIFEST_UNREFERENCED("manifest.unreferenced"),
+    ;
+
+    companion object {
+        private val byCode: Map<String, ValidationStatusCode> = entries.associateBy { it.code }
+
+        /**
+         * Returns the entry for a status code string, or `null` if this library does not list it.
+         *
+         * @param code The status code as it appears in manifest JSON, such as `claimSignature.validated`.
+         */
+        @JvmStatic
+        fun fromCode(code: String): ValidationStatusCode? = byCode[code]
+    }
 }

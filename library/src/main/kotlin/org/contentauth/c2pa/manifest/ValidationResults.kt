@@ -25,8 +25,8 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class ValidationResults(
-    @SerialName("active_manifest")
+    @SerialName("activeManifest")
     val activeManifest: StatusCodes? = null,
-    @SerialName("ingredient_deltas")
+    @SerialName("ingredientDeltas")
     val ingredientDeltas: List<IngredientDeltaValidationResult>? = null,
 )

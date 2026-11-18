@@ -19,22 +19,23 @@ import kotlinx.serialization.Serializable
  * Container for assertion metadata.
  *
  * @property dataSource The source of the data in this assertion.
- * @property reference A reference identifier for this metadata.
- * @property regionOfInterest Regions of interest associated with this metadata.
+ * @property reference A hashed URI reference to the assertion this metadata describes.
+ * @property regionOfInterest The region of interest associated with this metadata.
  * @property reviewRatings Review ratings for this assertion.
  * @property dateTime The date/time associated with this metadata (ISO 8601 format).
  * @see RegionOfInterest
  * @see DataSource
+ * @see HashedUri
  */
 @Serializable
 data class Metadata(
-    @SerialName("data_source")
+    @SerialName("dataSource")
     val dataSource: DataSource? = null,
-    val reference: String? = null,
-    @SerialName("region_of_interest")
-    val regionOfInterest: List<RegionOfInterest>? = null,
-    @SerialName("review_ratings")
+    val reference: HashedUri? = null,
+    @SerialName("regionOfInterest")
+    val regionOfInterest: RegionOfInterest? = null,
+    @SerialName("reviewRatings")
     val reviewRatings: List<ReviewRating>? = null,
-    @SerialName("date_time")
+    @SerialName("dateTime")
     val dateTime: String? = null,
 )

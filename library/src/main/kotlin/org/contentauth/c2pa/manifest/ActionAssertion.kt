@@ -37,7 +37,7 @@ import org.contentauth.c2pa.PredefinedAction
  * @property parameters Additional information describing the action.
  * @property whenPerformed The timestamp when the action was performed (ISO 8601 format).
  * @property changes Regions of interest describing what changed.
- * @property related Related ingredient labels.
+ * @property related Related actions, such as the steps that make up this action.
  * @property reason The reason for performing the action.
  * @see AssertionDefinition
  * @see PredefinedAction
@@ -51,7 +51,7 @@ data class ActionAssertion(
     @SerialName("when")
     val whenPerformed: String? = null,
     val changes: List<RegionOfInterest>? = null,
-    val related: List<String>? = null,
+    val related: List<ActionAssertion>? = null,
     val reason: String? = null,
 ) {
 
@@ -79,7 +79,7 @@ data class ActionAssertion(
         parameters: Map<String, JsonElement>? = null,
         whenPerformed: String? = null,
         changes: List<RegionOfInterest>? = null,
-        related: List<String>? = null,
+        related: List<ActionAssertion>? = null,
         reason: String? = null,
     ) : this(
         action = action.value,
@@ -102,7 +102,7 @@ data class ActionAssertion(
         parameters: Map<String, JsonElement>? = null,
         whenPerformed: String? = null,
         changes: List<RegionOfInterest>? = null,
-        related: List<String>? = null,
+        related: List<ActionAssertion>? = null,
         reason: String? = null,
     ) : this(
         action = action.value,

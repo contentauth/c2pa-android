@@ -68,7 +68,7 @@ data class Ingredient(
     @SerialName("instance_id")
     val instanceId: String? = null,
     val provenance: String? = null,
-    @SerialName("informational_uri")
+    @SerialName("informational_URI")
     val informationalUri: String? = null,
     @SerialName("claim_signature")
     val claimSignature: HashedUri? = null,

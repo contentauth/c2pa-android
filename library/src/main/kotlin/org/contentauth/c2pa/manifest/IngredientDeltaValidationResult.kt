@@ -24,8 +24,8 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class IngredientDeltaValidationResult(
-    @SerialName("ingredient_assertion_uri")
+    @SerialName("ingredientAssertionURI")
     val ingredientAssertionUri: String,
-    @SerialName("validation_deltas")
+    @SerialName("validationDeltas")
     val validationDeltas: StatusCodes,
 )

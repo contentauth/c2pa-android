@@ -17,14 +17,14 @@ import kotlinx.serialization.Serializable
 /**
  * Represents a review rating for an assertion.
  *
- * @property code A code identifying the rating type.
  * @property explanation A human-readable explanation of the rating.
- * @property value The numeric rating value.
+ * @property value The numeric rating value, from 1 to 5.
+ * @property code A code identifying the rating type.
  * @see Metadata
  */
 @Serializable
 data class ReviewRating(
+    val explanation: String,
+    val value: Int,
     val code: String? = null,
-    val explanation: String? = null,
-    val value: Int? = null,
 )

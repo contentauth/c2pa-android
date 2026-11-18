@@ -24,7 +24,7 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class DataSource(
-    val type: String? = null,
+    val type: String,
     val details: String? = null,
     val actors: List<MetadataActor>? = null,
 )
