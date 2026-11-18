@@ -121,8 +121,10 @@ The output is `build/docs-versioned/`, containing the default site and
 All documentation and selector links are relative, so this directory can be
 served over HTTP locally or hosted under `/c2pa-android/` on GitHub Pages.
 
-The builder verifies that each tag is a published GitHub release, exports its
-sources to a temporary workspace, and runs that release's own `make docs`, so
+The builder takes the listed tags that are published GitHub releases. A listed
+tag whose release is still a draft is skipped with a warning, and a listed
+version that is not a tag fails the build. For each release it exports the
+sources to a temporary workspace and runs that release's own `make docs`, so
 each release builds with the recipe it shipped with. All releases build with the
 one JDK the workflow selects, which must therefore still build the oldest listed
 release. It preserves executable permissions on the Gradle wrapper and
@@ -141,10 +143,13 @@ default version, so the real build is the test.
 
 The release workflow puts each stable release first in
 [docs/versions.json](versions.json), commits that to the release branch
-before tagging, and then rebuilds and deploys the site with that release as the
-default. It calls the documentation workflow explicitly, because events created
-with `GITHUB_TOKEN` do not trigger other workflows. Pre-releases are not added
-and do not rebuild the site. To document another release or change the default,
-edit the list and keep the default first. The documentation workflow also
+before tagging. When the run publishes the release, it then rebuilds and
+deploys the site with that release as the default, calling the documentation
+workflow explicitly because events created with `GITHUB_TOKEN` do not trigger
+other workflows. A release left as a draft (the default) is listed but stays off
+the site until it is published by hand, which triggers the documentation
+workflow. If a draft is deleted instead, remove its entry from the list.
+Pre-releases are not added and do not rebuild the site. To document another
+release or change the default, edit the list and keep the default first. The documentation workflow also
 deploys on relevant changes to `main` and manual dispatch, and validates pull
 requests without deploying them.
