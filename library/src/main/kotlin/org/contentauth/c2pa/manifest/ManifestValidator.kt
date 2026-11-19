@@ -63,6 +63,12 @@ object ManifestValidator {
      */
     const val RECOMMENDED_CLAIM_VERSION = 2
 
+    /** The range the C2PA specification allows for a review rating value. */
+    private val REVIEW_RATING_RANGE = 1..5
+
+    /** The range c2pa-rs can represent for a review rating value (an unsigned byte). */
+    private val REVIEW_RATING_NATIVE_RANGE = 0..255
+
     /**
      * Validates a manifest definition for C2PA 2.3 spec compliance.
      *
@@ -91,6 +97,9 @@ object ManifestValidator {
         // Validate assertion labels
         manifest.assertions.forEach { assertion ->
             validateAssertionLabel(assertion, warnings)
+            if (assertion is AssertionDefinition.Actions) {
+                checkReviewRatings(assertion.metadata, "Assertion '${assertion.baseLabel()}'", errors, warnings)
+            }
         }
 
         // Validate ingredients
@@ -101,9 +110,43 @@ object ManifestValidator {
                         "Consider using parentOf, componentOf, or inputTo.",
                 )
             }
+            checkReviewRatings(
+                ingredient.metadata,
+                "Ingredient '${ingredient.title ?: "unnamed"}'",
+                errors,
+                warnings,
+            )
         }
 
         return ManifestValidationResult(errors, warnings)
+    }
+
+    /**
+     * Checks the review rating values in metadata, including metadata nested in its region of interest.
+     *
+     * A value c2pa-rs cannot represent is an error, because the manifest will be rejected.
+     * A value it accepts but the specification does not allow is a warning.
+     */
+    private fun checkReviewRatings(
+        metadata: Metadata?,
+        location: String,
+        errors: MutableList<String>,
+        warnings: MutableList<String>,
+    ) {
+        if (metadata == null) return
+        metadata.reviewRatings?.forEach { rating ->
+            when {
+                rating.value !in REVIEW_RATING_NATIVE_RANGE -> errors.add(
+                    "$location has a review rating value of ${rating.value}, which cannot be signed. " +
+                        "The value must be from ${REVIEW_RATING_RANGE.first} to ${REVIEW_RATING_RANGE.last}.",
+                )
+                rating.value !in REVIEW_RATING_RANGE -> warnings.add(
+                    "$location has a review rating value of ${rating.value}. " +
+                        "The C2PA specification allows ${REVIEW_RATING_RANGE.first} to ${REVIEW_RATING_RANGE.last}.",
+                )
+            }
+        }
+        checkReviewRatings(metadata.regionOfInterest?.metadata, location, errors, warnings)
     }
 
     private fun validateAssertionLabel(assertion: AssertionDefinition, warnings: MutableList<String>) {

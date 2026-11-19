@@ -148,6 +148,24 @@ class AndroidManifestTests : ManifestTests() {
     }
 
     @Test
+    fun runTestUnknownValidationStatusCode() = runBlocking {
+        val result = testUnknownValidationStatusCode()
+        assertTrue(result.success, "Unknown Validation Status Code test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestUpstreamSerializedNames() = runBlocking {
+        val result = testUpstreamSerializedNames()
+        assertTrue(result.success, "Upstream Serialized Names test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestIngredientModelsThroughBuilder() = runBlocking {
+        val result = testIngredientModelsThroughBuilder()
+        assertTrue(result.success, "Ingredient Models Through Builder test failed: ${result.message}")
+    }
+
+    @Test
     fun runTestAllDigitalSourceTypes() = runBlocking {
         val result = testAllDigitalSourceTypes()
         assertTrue(result.success, "All Digital Source Types test failed: ${result.message}")
@@ -260,5 +278,11 @@ class AndroidManifestTests : ManifestTests() {
     fun runTestStandardAssertionLabelSerialNames() = runBlocking {
         val result = testStandardAssertionLabelSerialNames()
         assertTrue(result.success, "StandardAssertionLabel serialNames test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestOpenedActionWithIngredient() = runBlocking {
+        val result = testOpenedActionWithIngredient()
+        assertTrue(result.success, "Opened Action with Ingredient test failed: ${result.message}")
     }
 }

@@ -53,11 +53,15 @@ import org.contentauth.c2pa.manifest.Relationship
 import org.contentauth.c2pa.manifest.TrainingMiningEntry
 import org.contentauth.c2pa.manifest.CawgTrainingMiningEntry
 import org.contentauth.c2pa.manifest.ManifestValidator
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
+import org.contentauth.c2pa.C2PAJson
 import org.contentauth.c2pa.FileStream
+import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
 import org.contentauth.c2pa.SignerInfo
 import org.contentauth.c2pa.SigningAlgorithm
@@ -298,28 +302,63 @@ abstract class ManifestTests : TestBase() {
     }
 
     /**
-     * Tests HashedUri equality.
+     * Tests HashedUri equality, that the base64 hash is written as the byte array c2pa-rs
+     * reads, and that every form c2pa-rs or a caller can supply decodes to the same base64.
      */
     suspend fun testHashedUri(): TestResult = withContext(Dispatchers.IO) {
         runTest("Manifest HashedUri") {
             val hu1 = HashedUri(hash = "", url = "foo")
             val hu2 = HashedUri(hash = "", url = "foo")
+            val failures = mutableListOf<String>()
+            if (hu1 != hu2) failures += "equality: $hu1 != $hu2"
 
-            if (hu1 == hu2) {
-                TestResult(
-                    "Manifest HashedUri",
-                    true,
-                    "HashedUris equal",
-                    "HashedUri: $hu1",
+            // "/+8A" is the bytes 255, 239, 0, which covers values above the signed byte range.
+            val hashed = HashedUri(url = "foo", hash = "/+8A")
+            val encoded = C2PAJson.default.encodeToString(HashedUri.serializer(), hashed)
+            if (!encoded.contains("\"hash\":[255,239,0]")) failures += "hash not written as bytes: $encoded"
+
+            val forms = mapOf(
+                "byte array" to "[255, 239, 0]",
+                "b64 marker" to "\"b64'/+8A'\"",
+                "plain base64" to "\"/+8A\"",
+            )
+            forms.forEach { (name, hashJson) ->
+                val decoded = C2PAJson.default.decodeFromString(
+                    HashedUri.serializer(),
+                    """{"url": "foo", "hash": $hashJson}""",
                 )
-            } else {
-                TestResult(
-                    "Manifest HashedUri",
-                    false,
-                    "HashedUris unexpectedly unequal",
-                    "hu1: $hu1, hu2: $hu2",
-                )
+                if (decoded != hashed) failures += "$name decoded to $decoded"
             }
+
+            val emptyEncoded = C2PAJson.default.encodeToString(HashedUri.serializer(), hu1)
+            if (!emptyEncoded.contains("\"hash\":[]")) failures += "empty hash: $emptyEncoded"
+
+            val rejected = try {
+                C2PAJson.default.encodeToString(HashedUri.serializer(), HashedUri(url = "foo", hash = "not base64!"))
+                false
+            } catch (e: SerializationException) {
+                true
+            }
+            if (!rejected) failures += "invalid base64 was encoded"
+
+            val outOfRangeRejected = try {
+                C2PAJson.default.decodeFromString(HashedUri.serializer(), """{"url": "foo", "hash": [0, 256]}""")
+                false
+            } catch (e: SerializationException) {
+                true
+            }
+            if (!outOfRangeRejected) failures += "byte outside 0..255 was decoded"
+
+            TestResult(
+                "Manifest HashedUri",
+                failures.isEmpty(),
+                if (failures.isEmpty()) {
+                    "HashedUris compare equal and write their hash as bytes"
+                } else {
+                    "HashedUri failures: $failures"
+                },
+                encoded,
+            )
         }
     }
 
@@ -825,7 +864,8 @@ abstract class ManifestTests : TestBase() {
                     )
                 }
 
-                if (full?.validationStatus?.firstOrNull()?.code != ValidationStatusCode.CLAIM_SIGNATURE_VALIDATED) {
+                val fullStatusCode = full?.validationStatus?.firstOrNull()?.statusCode
+                if (fullStatusCode != ValidationStatusCode.CLAIM_SIGNATURE_VALIDATED) {
                     return@runTest TestResult(
                         "Ingredients",
                         false,
@@ -1179,6 +1219,16 @@ abstract class ManifestTests : TestBase() {
             try {
                 val allCodes = ValidationStatusCode.entries
 
+                val duplicated = allCodes.groupBy { it.code }.filterValues { it.size > 1 }.keys
+                if (duplicated.isNotEmpty()) {
+                    return@runTest TestResult(
+                        "All Validation Status Codes",
+                        false,
+                        "Status code strings are not unique",
+                        "Duplicated: $duplicated",
+                    )
+                }
+
                 for (code in allCodes) {
                     val status = ValidationStatus(code = code, explanation = "Test for $code")
                     val ingredient = Ingredient(
@@ -1195,8 +1245,9 @@ abstract class ManifestTests : TestBase() {
                     val jsonString = manifest.toJson()
                     val parsed = ManifestDefinition.fromJson(jsonString)
 
-                    val parsedCode = parsed.ingredients.first().validationStatus?.first()?.code
-                    if (parsedCode != code) {
+                    val parsedStatus = parsed.ingredients.first().validationStatus?.first()
+                    val parsedCode = parsedStatus?.statusCode
+                    if (parsedCode != code || parsedStatus.code != code.code) {
                         return@runTest TestResult(
                             "All Validation Status Codes",
                             false,
@@ -1219,6 +1270,295 @@ abstract class ManifestTests : TestBase() {
                     e.stackTraceToString(),
                 )
             }
+        }
+    }
+
+    /**
+     * Tests that a status code this library does not list still decodes, keeps its original
+     * string, and survives re-encoding, and that the CAWG codes resolve to enum entries.
+     */
+    suspend fun testUnknownValidationStatusCode(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Unknown Validation Status Code") {
+            try {
+                val unknownCode = "com.example.future.code"
+                val json = """
+                    {
+                        "title": "Status Test",
+                        "validation_status": [
+                            {"code": "$unknownCode", "explanation": "from a newer validator"},
+                            {"code": "cawg.x509.credential.trusted"}
+                        ]
+                    }
+                """.trimIndent()
+
+                val ingredient = C2PAJson.default.decodeFromString(Ingredient.serializer(), json)
+                val unknown = ingredient.validationStatus?.getOrNull(0)
+                val cawg = ingredient.validationStatus?.getOrNull(1)
+                val reencoded = C2PAJson.default.encodeToString(Ingredient.serializer(), ingredient)
+
+                val success = unknown?.code == unknownCode &&
+                    unknown.statusCode == null &&
+                    unknown.explanation == "from a newer validator" &&
+                    cawg?.statusCode == ValidationStatusCode.CAWG_X509_CREDENTIAL_TRUSTED &&
+                    ValidationStatusCode.fromCode(unknownCode) == null &&
+                    reencoded.contains("\"$unknownCode\"")
+
+                TestResult(
+                    "Unknown Validation Status Code",
+                    success,
+                    if (success) {
+                        "Unlisted status codes decode and keep their original string"
+                    } else {
+                        "Unlisted status code was not preserved"
+                    },
+                    "unknown: $unknown, cawg: $cawg, reencoded: $reencoded",
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Unknown Validation Status Code",
+                    false,
+                    "Error: ${e.message}",
+                    e.stackTraceToString(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Tests that the manifest and validation models read and write the field names c2pa-rs
+     * uses, including JSON that carries fields this library does not model.
+     */
+    suspend fun testUpstreamSerializedNames(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Upstream Serialized Names") {
+            try {
+                val codes = """{"success": [], "informational": [], "failure": [], "extra": 1}"""
+                val region = """{"region": [{"type": "frame"}], "name": "clip"}"""
+                val ingredientJson = """
+                    {
+                        "title": "Source",
+                        "informational_URI": "https://example.com/info",
+                        "validation_results": {
+                            "activeManifest": $codes,
+                            "ingredientDeltas": [
+                                {
+                                    "ingredientAssertionURI": "self#jumbf=c2pa.assertions/c2pa.ingredient.v3",
+                                    "validationDeltas": $codes
+                                }
+                            ],
+                            "specVersion": "2.3"
+                        },
+                        "metadata": {
+                            "dateTime": "2026-01-02T03:04:05Z",
+                            "dataSource": {"type": "signer"},
+                            "reviewRatings": [{"explanation": "checked", "value": 5}],
+                            "regionOfInterest": $region,
+                            "reference": {"url": "self#jumbf=c2pa.assertions/c2pa.actions.v2", "hash": "aGFzaA=="},
+                            "localizations": []
+                        },
+                        "not_modelled": true
+                    }
+                """.trimIndent()
+                val actionJson = """
+                    {
+                        "action": "c2pa.edited",
+                        "related": [{"action": "c2pa.cropped"}, {"action": "c2pa.resized"}]
+                    }
+                """.trimIndent()
+
+                val ingredient = C2PAJson.default.decodeFromString(Ingredient.serializer(), ingredientJson)
+                val action = C2PAJson.default.decodeFromString(ActionAssertion.serializer(), actionJson)
+                val results = ingredient.validationResults
+                val metadata = ingredient.metadata
+
+                val failures = mutableListOf<String>()
+                if (ingredient.informationalUri != "https://example.com/info") failures += "informational_URI"
+                if (results?.activeManifest == null) failures += "activeManifest"
+                if (results?.ingredientDeltas?.firstOrNull()?.ingredientAssertionUri !=
+                    "self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
+                ) {
+                    failures += "ingredientDeltas / ingredientAssertionURI"
+                }
+                if (metadata?.dateTime != "2026-01-02T03:04:05Z") failures += "dateTime"
+                if (metadata?.dataSource?.type != "signer") failures += "dataSource"
+                if (metadata?.reviewRatings?.size != 1) failures += "reviewRatings"
+                if (metadata?.regionOfInterest?.name != "clip") failures += "regionOfInterest"
+                if (metadata?.reference?.url != "self#jumbf=c2pa.assertions/c2pa.actions.v2") {
+                    failures += "reference"
+                }
+                if (metadata?.reference?.hash != "aGFzaA==") failures += "reference hash"
+                if (action.related?.map { it.action } != listOf("c2pa.cropped", "c2pa.resized")) {
+                    failures += "related"
+                }
+                if (DigitalSourceType.TRAINED_ALGORITHMIC_DATA.toIptcUrl() !=
+                    "http://c2pa.org/digitalsourcetype/trainedAlgorithmicData"
+                ) {
+                    failures += "trainedAlgorithmicData URL"
+                }
+
+                val encoded = C2PAJson.default.encodeToString(Ingredient.serializer(), ingredient) +
+                    C2PAJson.default.encodeToString(ActionAssertion.serializer(), action)
+                val expectedKeys = listOf(
+                    "informational_URI", "activeManifest", "ingredientDeltas", "ingredientAssertionURI",
+                    "validationDeltas", "dateTime", "dataSource", "reviewRatings", "regionOfInterest",
+                    "reference", "related",
+                )
+                val staleKeys = listOf(
+                    "informational_uri", "active_manifest", "ingredient_deltas", "ingredient_assertion_uri",
+                    "validation_deltas", "date_time", "data_source", "review_ratings", "region_of_interest",
+                )
+                failures += expectedKeys.filterNot { encoded.contains("\"$it\":") }.map { "missing key $it" }
+                failures += staleKeys.filter { encoded.contains("\"$it\":") }.map { "stale key $it" }
+                if (!encoded.contains("\"hash\":[104,97,115,104]")) failures += "reference hash not written as bytes"
+
+                // The three lists share a type, so their order is part of the API: a positional
+                // call must keep putting failures under "failure".
+                val positional = StatusCodes(
+                    listOf(ValidationStatus(code = "com.example.success")),
+                    listOf(ValidationStatus(code = "com.example.failure")),
+                    listOf(ValidationStatus(code = "com.example.informational")),
+                )
+                val positionalJson = C2PAJson.default.encodeToString(StatusCodes.serializer(), positional)
+                if (positional.failure.singleOrNull()?.code != "com.example.failure" ||
+                    !positionalJson.contains("\"failure\":[{\"code\":\"com.example.failure\"}]")
+                ) {
+                    failures += "StatusCodes positional order: $positionalJson"
+                }
+
+                TestResult(
+                    "Upstream Serialized Names",
+                    failures.isEmpty(),
+                    if (failures.isEmpty()) {
+                        "Models read and write the field names c2pa-rs uses"
+                    } else {
+                        "Field name mismatches: $failures"
+                    },
+                    encoded,
+                )
+            } catch (e: Exception) {
+                TestResult(
+                    "Upstream Serialized Names",
+                    false,
+                    "Error: ${e.message}",
+                    e.stackTraceToString(),
+                )
+            }
+        }
+    }
+
+    /**
+     * Tests that the ingredient, metadata and validation result models are accepted by the
+     * native library when a manifest is signed, and that the signed manifest's ingredient
+     * decodes back into the same models.
+     */
+    suspend fun testIngredientModelsThroughBuilder(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Ingredient Models Through Builder") {
+            val noCodes = StatusCodes(success = emptyList(), failure = emptyList(), informational = emptyList())
+            val unlistedCode = "com.example.future.code"
+            val deltaUri = "self#jumbf=c2pa.assertions/c2pa.ingredient.v3"
+            val reference = HashedUri(url = "self#jumbf=c2pa.assertions/c2pa.actions.v2", hash = "/+8A")
+            val credential = HashedUri(url = "https://example.com/credential", hash = "aGFzaA==")
+            val ingredient = Ingredient(
+                title = "Source",
+                format = "image/jpeg",
+                relationship = Relationship.COMPONENT_OF,
+                informationalUri = "https://example.com/info",
+                // c2pa-rs accepts validation_status on a supplied ingredient but does not report
+                // it back, so the unlisted code is also carried in the deltas, which it does.
+                validationStatus = listOf(ValidationStatus(code = unlistedCode)),
+                validationResults = ValidationResults(
+                    activeManifest = noCodes,
+                    ingredientDeltas = listOf(
+                        IngredientDeltaValidationResult(
+                            ingredientAssertionUri = deltaUri,
+                            validationDeltas = noCodes.copy(
+                                informational = listOf(ValidationStatus(code = unlistedCode)),
+                            ),
+                        ),
+                    ),
+                ),
+                metadata = Metadata(
+                    dataSource = DataSource(
+                        type = "signer",
+                        actors = listOf(MetadataActor(identifier = "actor-1", credentials = listOf(credential))),
+                    ),
+                    reference = reference,
+                    regionOfInterest = RegionOfInterest(
+                        region = listOf(RegionRange(type = RangeType.FRAME)),
+                        name = "clip",
+                    ),
+                    reviewRatings = listOf(ReviewRating(explanation = "checked", value = 5)),
+                    dateTime = "2026-01-02T03:04:05Z",
+                ),
+            )
+            val manifest = ManifestDefinition(
+                title = "Ingredient Models",
+                claimGeneratorInfo = listOf(ClaimGeneratorInfo(name = "C2PA Android Test", version = "1.0.0")),
+                assertions = listOf(
+                    AssertionDefinition.actions(
+                        listOf(
+                            ActionAssertion(
+                                action = PredefinedAction.CREATED,
+                                digitalSourceType = DigitalSourceType.DIGITAL_CAPTURE,
+                            ),
+                        ),
+                    ),
+                ),
+                ingredients = listOf(ingredient),
+            )
+            val signerInfo = SignerInfo(
+                SigningAlgorithm.ES256,
+                loadResourceAsString("es256_certs"),
+                loadResourceAsString("es256_private"),
+            )
+
+            val signed = Builder.fromJson(manifest.toJson()).use { builder ->
+                ByteArrayStream(loadResourceAsBytes("pexels_asadphoto_457882")).use { source ->
+                    ByteArrayStream().use { dest ->
+                        Signer.fromInfo(signerInfo).use { signer ->
+                            builder.sign("image/jpeg", source, dest, signer)
+                        }
+                        dest.getData()
+                    }
+                }
+            }
+
+            val store = ByteArrayStream(signed).use { stream ->
+                Reader.fromStream("image/jpeg", stream).use { reader -> JSONObject(reader.json()) }
+            }
+            val readIngredientJson = store.getJSONObject("manifests")
+                .getJSONObject(store.getString("active_manifest"))
+                .getJSONArray("ingredients")
+                .getJSONObject(0)
+                .toString()
+            val read = C2PAJson.default.decodeFromString(Ingredient.serializer(), readIngredientJson)
+
+            val failures = mutableListOf<String>()
+            val readDelta = read.validationResults?.ingredientDeltas?.singleOrNull()
+            if (read.informationalUri != ingredient.informationalUri) failures += "informationalUri"
+            if (read.validationResults?.activeManifest == null) failures += "validationResults.activeManifest"
+            if (readDelta?.ingredientAssertionUri != deltaUri) failures += "ingredientDeltas.ingredientAssertionUri"
+            if (readDelta?.validationDeltas?.informational?.singleOrNull()?.code != unlistedCode) {
+                failures += "ingredientDeltas.validationDeltas"
+            }
+            if (read.metadata?.dateTime != "2026-01-02T03:04:05Z") failures += "metadata.dateTime"
+            if (read.metadata?.dataSource?.type != "signer") failures += "metadata.dataSource"
+            if (read.metadata?.dataSource?.actors?.singleOrNull()?.credentials != listOf(credential)) {
+                failures += "metadata.dataSource.actors.credentials"
+            }
+            if (read.metadata?.reference != reference) failures += "metadata.reference"
+            if (read.metadata?.reviewRatings?.firstOrNull()?.value != 5) failures += "metadata.reviewRatings"
+            if (read.metadata?.regionOfInterest?.name != "clip") failures += "metadata.regionOfInterest"
+
+            TestResult(
+                "Ingredient Models Through Builder",
+                failures.isEmpty(),
+                if (failures.isEmpty()) {
+                    "Ingredient models are accepted when signing and decode from the signed manifest"
+                } else {
+                    "Fields lost through the native library: $failures"
+                },
+                readIngredientJson,
+            )
         }
     }
 
@@ -1389,6 +1729,35 @@ abstract class ManifestTests : TestBase() {
                         "Manifest Validator",
                         false,
                         "Empty claim_generator_info should produce an error",
+                    )
+                }
+
+                // Test 3: Review rating values outside the ranges c2pa-rs and the spec allow
+                fun ratingResult(value: Int) = ManifestValidator.validate(
+                    validManifest.copy(
+                        ingredients = listOf(
+                            Ingredient.parent("Rated", "image/jpeg").copy(
+                                metadata = Metadata(
+                                    reviewRatings = listOf(ReviewRating(explanation = "checked", value = value)),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+                val inRange = ratingResult(5)
+                val outsideSpec = ratingResult(9)
+                val unsignable = ratingResult(300)
+                val negative = ratingResult(-1)
+                val ratingOk = !inRange.hasErrors() && inRange.warnings.none { it.contains("review rating") } &&
+                    !outsideSpec.hasErrors() && outsideSpec.warnings.any { it.contains("review rating value of 9") } &&
+                    unsignable.errors.any { it.contains("review rating value of 300") } &&
+                    negative.errors.any { it.contains("review rating value of -1") }
+                if (!ratingOk) {
+                    return@runTest TestResult(
+                        "Manifest Validator",
+                        false,
+                        "Review rating range is not validated",
+                        "5: $inRange, 9: $outsideSpec, 300: $unsignable, -1: $negative",
                     )
                 }
 
@@ -2180,6 +2549,14 @@ abstract class ManifestTests : TestBase() {
                 val unknown = DigitalSourceType.fromIptcUrl("http://example.com/unknown")
                 val unknownIsNull = unknown == null
 
+                // The URL releases up to 0.1.1 wrote for TRAINED_ALGORITHMIC_DATA still resolves.
+                val legacyUrl = "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicData"
+                val legacy = DigitalSourceType.fromIptcUrl(legacyUrl)
+                if (legacy != DigitalSourceType.TRAINED_ALGORITHMIC_DATA) {
+                    allMatch = false
+                    mismatches.add("legacy URL '$legacyUrl' resolved to $legacy")
+                }
+
                 val success = allMatch && unknownIsNull
 
                 TestResult(
@@ -2626,7 +3003,7 @@ abstract class ManifestTests : TestBase() {
      * Tests creating a valid c2pa.opened action assertion with a parent ingredient.
      *
      * Per C2PA spec, c2pa.opened indicates an existing asset was opened and is being set as the
-     * parentOf ingredient. The action's `related` field references the ingredient label.
+     * parentOf ingredient. The action's `ingredientIds` parameter references the ingredient label.
      */
     suspend fun testOpenedActionWithIngredient(): TestResult = withContext(Dispatchers.IO) {
         runTest("Opened Action with Ingredient") {
@@ -2634,7 +3011,8 @@ abstract class ManifestTests : TestBase() {
                 val parentIngredient = Ingredient.parent(
                     title = "Original Photo.jpg",
                     format = "image/jpeg",
-                )
+                ).copy(label = "original-photo")
+                val ingredientIds = JsonArray(listOf(JsonPrimitive("original-photo")))
 
                 val manifest = ManifestDefinition(
                     title = "Edited Photo",
@@ -2646,7 +3024,7 @@ abstract class ManifestTests : TestBase() {
                             listOf(
                                 ActionAssertion(
                                     action = PredefinedAction.OPENED,
-                                    related = listOf("Original Photo.jpg"),
+                                    parameters = mapOf("ingredientIds" to ingredientIds),
                                 ),
                                 ActionAssertion(
                                     action = PredefinedAction.EDITED,
@@ -2701,12 +3079,12 @@ abstract class ManifestTests : TestBase() {
                     )
                 }
 
-                if (openedAction.related != listOf("Original Photo.jpg")) {
+                if (openedAction.parameters?.get("ingredientIds") != ingredientIds) {
                     return@runTest TestResult(
                         "Opened Action with Ingredient",
                         false,
-                        "Related ingredient label not preserved",
-                        "Expected ['Original Photo.jpg'], got: ${openedAction.related}",
+                        "ingredientIds parameter not preserved",
+                        "Expected $ingredientIds, got: ${openedAction.parameters}",
                     )
                 }
 
@@ -2731,6 +3109,33 @@ abstract class ManifestTests : TestBase() {
                                             "Opened Action with Ingredient",
                                             false,
                                             "Signed file has no manifests",
+                                        )
+                                    }
+
+                                    // c2pa-rs resolves ingredientIds into hashed URIs under
+                                    // parameters.ingredients, each naming an ingredient assertion.
+                                    val active = json.getJSONObject("manifests")
+                                        .getJSONObject(json.getString("active_manifest"))
+                                    val signedLabel = active.getJSONArray("ingredients")
+                                        .getJSONObject(0)
+                                        .getString("label")
+                                    val signedAssertions = active.getJSONArray("assertions")
+                                    val signedActions = (0 until signedAssertions.length())
+                                        .map { signedAssertions.getJSONObject(it) }
+                                        .first { it.getString("label").startsWith("c2pa.actions") }
+                                        .getJSONObject("data")
+                                        .getJSONArray("actions")
+                                    val signedOpened = (0 until signedActions.length())
+                                        .map { signedActions.getJSONObject(it) }
+                                        .firstOrNull { it.getString("action") == PredefinedAction.OPENED.value }
+                                    val linked = signedOpened?.optJSONObject("parameters")?.optJSONArray("ingredients")
+                                    val linkedUrl = linked?.optJSONObject(0)?.optString("url")
+                                    if (linked?.length() != 1 || linkedUrl?.endsWith("/$signedLabel") != true) {
+                                        return@runTest TestResult(
+                                            "Opened Action with Ingredient",
+                                            false,
+                                            "Signed c2pa.opened action is not linked to its ingredient",
+                                            "Ingredient label: $signedLabel, opened action: $signedOpened",
                                         )
                                     }
 

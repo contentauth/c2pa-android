@@ -17,7 +17,10 @@ import kotlinx.serialization.Serializable
 /**
  * Represents the validation status of a manifest or ingredient.
  *
- * @property code The validation status code.
+ * The status code is kept as the string c2pa-rs reported, because the set of codes is
+ * open-ended. Use [statusCode] to work with the codes this library lists.
+ *
+ * @property code The validation status code, such as `claimSignature.validated`.
  * @property explanation A human-readable explanation of the status.
  * @property success Whether this status indicates success.
  * @property url An optional URL with more information about this status.
@@ -26,8 +29,28 @@ import kotlinx.serialization.Serializable
  */
 @Serializable
 data class ValidationStatus(
-    val code: ValidationStatusCode,
+    val code: String,
     val explanation: String? = null,
     val success: Boolean? = null,
     val url: String? = null,
-)
+) {
+
+    /** The [ValidationStatusCode] for [code], or `null` if this library does not list the code. */
+    val statusCode: ValidationStatusCode?
+        get() = ValidationStatusCode.fromCode(code)
+
+    /**
+     * Creates a validation status from a listed [ValidationStatusCode].
+     */
+    constructor(
+        code: ValidationStatusCode,
+        explanation: String? = null,
+        success: Boolean? = null,
+        url: String? = null,
+    ) : this(
+        code = code.code,
+        explanation = explanation,
+        success = success,
+        url = url,
+    )
+}
