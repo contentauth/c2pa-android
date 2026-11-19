@@ -18,7 +18,8 @@ import kotlinx.serialization.Serializable
  * Represents a review rating for an assertion.
  *
  * @property explanation A human-readable explanation of the rating.
- * @property value The numeric rating value, from 1 to 5.
+ * @property value The numeric rating value, from 1 to 5. [ManifestValidator] reports a value
+ *   outside that range.
  * @property code A code identifying the rating type.
  * @see Metadata
  */

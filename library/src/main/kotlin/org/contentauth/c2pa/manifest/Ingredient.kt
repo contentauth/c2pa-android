@@ -70,12 +70,6 @@ data class Ingredient(
     val provenance: String? = null,
     @SerialName("informational_URI")
     val informationalUri: String? = null,
-    @SerialName("claim_signature")
-    val claimSignature: HashedUri? = null,
-    @SerialName("soft_bindings_matched")
-    val softBindingsMatched: Boolean? = null,
-    @SerialName("soft_binding_algorithms_matched")
-    val softBindingAlgorithmsMatched: List<String>? = null,
 ) {
     companion object {
         /**

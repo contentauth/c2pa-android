@@ -189,10 +189,18 @@ enum class DigitalSourceType {
         }
 
     companion object {
-        private val urlToType = entries.associateBy { it.toIptcUrl() }
+        /** The URL releases up to 0.1.1 wrote for [TRAINED_ALGORITHMIC_DATA]. */
+        private const val LEGACY_TRAINED_ALGORITHMIC_DATA_URL =
+            "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicData"
+
+        private val urlToType = entries.associateBy { it.toIptcUrl() } +
+            (LEGACY_TRAINED_ALGORITHMIC_DATA_URL to TRAINED_ALGORITHMIC_DATA)
 
         /**
          * Parses an IPTC URL to its corresponding DigitalSourceType.
+         *
+         * Also accepts the `cv.iptc.org` URL that earlier releases of this library wrote for
+         * [TRAINED_ALGORITHMIC_DATA], so assets they signed still resolve.
          *
          * @param url The IPTC URL to parse.
          * @return The corresponding DigitalSourceType, or null if not recognized.

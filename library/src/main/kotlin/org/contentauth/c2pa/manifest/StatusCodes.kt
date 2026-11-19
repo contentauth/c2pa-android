@@ -20,14 +20,14 @@ import kotlinx.serialization.Serializable
  * All three lists are required by c2pa-rs; pass an empty list for a category with no entries.
  *
  * @property success List of successful validation statuses.
- * @property informational List of informational validation statuses.
  * @property failure List of failed validation statuses.
+ * @property informational List of informational validation statuses.
  * @see ValidationStatus
  * @see ValidationResults
  */
 @Serializable
 data class StatusCodes(
     val success: List<ValidationStatus>,
-    val informational: List<ValidationStatus>,
     val failure: List<ValidationStatus>,
+    val informational: List<ValidationStatus>,
 )
