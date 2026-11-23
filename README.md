@@ -550,6 +550,17 @@ make signing-server-run
      - External signing server or CA for certificate enrollment
      - Only ES256 (P-256) is supported for StrongBox
 
+Any signer can carry stapled OCSP responses, so a validator can check the signing certificate's revocation status without a network request. Call `Signer.withOcspResponse()` once per certificate in the chain, signing certificate first:
+
+```kotlin
+Signer.fromInfo(signerInfo).use { signer ->
+    signer.withOcspResponse(leafOcspResponse).withOcspResponse(intermediateOcspResponse)
+    builder.sign("image/jpeg", source, dest, signer)
+}
+```
+
+The app fetches the DER-encoded responses and keeps them fresh; create a new signer when they are refreshed.
+
 ## License
 
 This project is licensed under the Apache License, Version 2.0, and the MIT License. See [LICENSE-APACHE](https://github.com/contentauth/c2pa-android/blob/main/LICENSE-APACHE) and [LICENSE-MIT](https://github.com/contentauth/c2pa-android/blob/main/LICENSE-MIT) for details.

@@ -435,6 +435,49 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     }
 
     /**
+     * Sets the label of the manifest this builder produces.
+     *
+     * The label must be a C2PA manifest URN of the form `urn:c2pa:<uuid>`, in lower case, with
+     * a version 4 UUID. The form is checked when the manifest is signed, not here: signing
+     * fails for any other value. When no label is set, one is generated at signing.
+     *
+     * The label is part of the manifest definition, so call this after [withDefinition]; a
+     * later [withDefinition] replaces the definition and the label with it.
+     *
+     * @param label The manifest label
+     * @return This builder for fluent chaining
+     * @throws C2PAError.Api if the label cannot be set
+     * @see label
+     */
+    @Throws(C2PAError::class)
+    fun setLabel(label: String): Builder {
+        val result = setLabelNative(ptr, label.toNativeUtf8())
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to set label")
+        }
+        return this
+    }
+
+    /**
+     * Returns the manifest label of this builder, or `null` if it has none.
+     *
+     * A label is present after [setLabel], or when the manifest definition carries one.
+     *
+     * @return The manifest label, or `null` if none is set
+     * @throws C2PAError.Api if the label cannot be read
+     * @see setLabel
+     */
+    @Throws(C2PAError::class)
+    fun label(): String? {
+        val out = arrayOfNulls<ByteArray>(1)
+        val result = labelNative(ptr, out)
+        if (result < 0) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to get label")
+        }
+        return out[0]?.fromNativeUtf8()
+    }
+
+    /**
      * Sets the base path used to resolve relative resource references.
      *
      * When the manifest definition references resources by relative path, the builder resolves
@@ -770,6 +813,8 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
     private external fun addActionNative(handle: Long, actionJson: ByteArray): Int
     private external fun setNoEmbedNative(handle: Long)
     private external fun setRemoteUrlNative(handle: Long, remoteUrl: ByteArray): Int
+    private external fun setLabelNative(handle: Long, label: ByteArray): Int
+    private external fun labelNative(handle: Long, out: Array<ByteArray?>): Int
     private external fun setBasePathNative(handle: Long, basePath: ByteArray): Int
     private external fun addResourceNative(handle: Long, uri: ByteArray, streamHandle: Long): Int
     private external fun addIngredientFromStreamNative(

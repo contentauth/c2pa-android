@@ -289,4 +289,10 @@ class AndroidBuilderTests : BuilderTests() {
         val result = testBuilderIntentEditAndUpdate()
         assertTrue(result.success, "Builder Intent Edit and Update test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestBuilderLabel() = runBlocking {
+        val result = testBuilderLabel()
+        assertTrue(result.success, "Builder Label test failed: ${result.message}")
+    }
 }
