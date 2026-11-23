@@ -153,6 +153,9 @@ jobs:
       - name: Check the JitPack JDK matches the catalog
         run: .github/scripts/check-java-version-drift.sh
 
+      - name: Check every shared test is registered
+        run: .github/scripts/check-test-registration.sh
+
       - name: Resolve JDK version
         id: java
         run: echo "version=$(.github/scripts/java-version.sh)" >> "$GITHUB_OUTPUT"
