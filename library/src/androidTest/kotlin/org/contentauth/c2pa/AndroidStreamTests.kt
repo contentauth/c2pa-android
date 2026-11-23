@@ -96,4 +96,9 @@ class AndroidStreamTests : StreamTests() {
         assertTrue(result.success, "Stream Release Frees Context test failed: ${result.message}")
     }
 
+    @Test
+    fun runTestLargeBufferHandling() = runBlocking {
+        val result = testLargeBufferHandling()
+        assertTrue(result.success, "Large Buffer Handling test failed: ${result.message}")
+    }
 }

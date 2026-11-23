@@ -217,6 +217,12 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(builderTests.testBuilderSetIntent())
     results.add(builderTests.testBuilderAddAction())
     results.add(builderTests.testBuilderLabel())
+    results.add(builderTests.testBuilderFromContextWithSettings())
+    results.add(builderTests.testBuilderFromJsonWithSettings())
+    results.add(builderTests.testBuilderWithArchive())
+    results.add(builderTests.testReaderFromContext())
+    results.add(builderTests.testSettingsSetValue())
+    results.add(builderTests.testBuilderIntentEditAndUpdate())
 
     // Signer Tests
     val signerTests = AppSignerTests(context)
@@ -292,6 +298,19 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(manifestTests.testImageRegionTypeToTypeString())
     results.add(manifestTests.testStandardAssertionLabelSerialNames())
     results.add(manifestTests.testOpenedActionWithIngredient())
+    results.add(manifestTests.testCawgTrainingMiningAssertion())
+    results.add(manifestTests.testManifestValidator())
+    results.add(manifestTests.testMixedAssertionTypes())
+    results.add(manifestTests.testEditedFactory())
+    results.add(manifestTests.testDeprecatedAssertionValidation())
+    results.add(manifestTests.testAllPredefinedActions())
+    results.add(manifestTests.testRedactions())
+    results.add(manifestTests.testAllIngredientRelationships())
+    results.add(manifestTests.testManifestValidatorDeprecatedAssertions())
+    results.add(manifestTests.testDigitalSourceTypeFromIptcUrl())
+    results.add(manifestTests.testManifestAssertionLabels())
+    results.add(manifestTests.testManifestToPrettyJson())
+    results.add(manifestTests.testIptcPhotoMetadata())
 
     // Settings Definition Tests
     val settingsDefinitionTests = AppSettingsDefinitionTests(context)

@@ -86,4 +86,22 @@ class AndroidCoreTests : CoreTests() {
         val result = testErrorEnumCoverage()
         assertTrue(result.success, "Error Enum Coverage test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestConcurrentOperations() = runBlocking {
+        val result = testConcurrentOperations()
+        assertTrue(result.success, "Concurrent Operations test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestReaderDetailedJson() = runBlocking {
+        val result = testReaderDetailedJson()
+        assertTrue(result.success, "Reader Detailed Json test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestReaderIsEmbedded() = runBlocking {
+        val result = testReaderIsEmbedded()
+        assertTrue(result.success, "Reader Is Embedded test failed: ${result.message}")
+    }
 }
