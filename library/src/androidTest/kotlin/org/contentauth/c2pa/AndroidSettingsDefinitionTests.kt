@@ -115,4 +115,22 @@ class AndroidSettingsDefinitionTests : SettingsDefinitionTests() {
         val result = testActionTemplates()
         assertTrue(result.success, "Action Templates test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestTrustAnchorsRoundTrip() = runBlocking {
+        val result = testTrustAnchorsRoundTrip()
+        assertTrue(result.success, "Trust Anchors Round Trip test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestLegacyTrustStringStillLoads() = runBlocking {
+        val result = testLegacyTrustStringStillLoads()
+        assertTrue(result.success, "Legacy Trust String test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestTrustAnchorsValidation() = runBlocking {
+        val result = testTrustAnchorsValidation()
+        assertTrue(result.success, "Trust Anchors Validation test failed: ${result.message}")
+    }
 }

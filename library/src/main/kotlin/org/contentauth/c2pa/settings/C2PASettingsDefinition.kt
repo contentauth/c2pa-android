@@ -38,7 +38,7 @@ import org.contentauth.c2pa.manifest.ResourceRef
  * Provides compile-time type safety for constructing settings JSON. The native C2PA library
  * handles actual validation when the JSON is passed to [org.contentauth.c2pa.C2PASettings.updateFromString].
  *
- * Generated from the c2pa-rs JSON Schema (`library/schemas/c2pa-settings.schema.json`).
+ * Field names follow the serde names of the settings structs in c2pa-rs.
  *
  * ## Usage
  *
@@ -51,8 +51,7 @@ import org.contentauth.c2pa.manifest.ResourceRef
  * ```
  *
  * @property version Configuration version (must be 1).
- * @property trust Settings for configuring the C2PA trust lists.
- * @property cawgTrust Settings for configuring the CAWG trust lists.
+ * @property trust Settings for configuring the trust lists: C2PA signers, time-stamp authorities and CAWG.
  * @property core Settings for configuring core features.
  * @property verify Settings for configuring verification.
  * @property builder Settings for configuring the builder.
@@ -65,8 +64,6 @@ import org.contentauth.c2pa.manifest.ResourceRef
 data class C2PASettingsDefinition(
     val version: Int? = null,
     val trust: TrustSettings? = null,
-    @SerialName("cawg_trust")
-    val cawgTrust: TrustSettings? = null,
     val core: CoreSettings? = null,
     val verify: VerifySettings? = null,
     val builder: BuilderSettingsDefinition? = null,
@@ -96,25 +93,84 @@ data class C2PASettingsDefinition(
 /**
  * Trust list configuration.
  *
- * @property verifyTrustList Whether to verify trust lists.
- * @property userAnchors User-defined trust anchors (PEM format).
- * @property trustAnchors Trust anchors (PEM format).
- * @property trustConfig Trust configuration.
- * @property allowedList Allowed list configuration.
+ * Trust anchors are supplied as a list of [TrustAnchor] entries. Each entry names what it is
+ * trusted for through [TrustAnchor.trustKind]: C2PA claim signers, time-stamp authorities, or
+ * CAWG identity signers. An anchor is only used for its own kind.
+ *
+ * ## Usage
+ *
+ * ```kotlin
+ * val trust = TrustSettings(
+ *     anchors = listOf(
+ *         TrustAnchor(trustAnchors = signerRootsPem, trustKind = TrustKind.MANIFEST),
+ *         TrustAnchor(trustAnchors = tsaRootsPem, trustKind = TrustKind.TSA),
+ *     ),
+ * )
+ * ```
+ *
+ * @property anchors The trust lists to use.
+ * @property trustConfig Extended key usage OIDs accepted for signing certificates, one per line.
+ *   These are added to the built-in set unless [useDefaultEkus] is `false`.
+ * @property useDefaultEkus Whether the built-in C2PA extended key usages stay accepted when
+ *   [trustConfig] is set. The native default is `true`.
+ * @see TrustAnchor
+ * @see TrustKind
  */
 @Serializable
 data class TrustSettings(
-    @SerialName("verify_trust_list")
-    val verifyTrustList: Boolean? = null,
-    @SerialName("user_anchors")
-    val userAnchors: String? = null,
+    val anchors: List<TrustAnchor>? = null,
+    @SerialName("trust_config")
+    val trustConfig: String? = null,
+    @SerialName("use_default_ekus")
+    val useDefaultEkus: Boolean? = null,
+)
+
+/**
+ * One trust list: a bundle of root certificates and what they are trusted for.
+ *
+ * @property trustAnchors The root certificates, PEM encoded.
+ * @property trustKind What the anchors are trusted for.
+ * @property trustUri An identifier for this trust list. One is generated when omitted.
+ * @property trustConfig Extended key usage OIDs for certificates under these anchors, one per
+ *   line. For [TrustKind.CAWG] anchors this replaces [TrustSettings.trustConfig].
+ * @property allowedList End-entity certificates that are trusted directly, as a PEM bundle.
+ * @property trustedIcaIssuers Issuer DIDs trusted for CAWG identity claims aggregation
+ *   credentials. No issuer is trusted when the list is empty or omitted.
+ * @see TrustSettings
+ */
+@Serializable
+data class TrustAnchor(
     @SerialName("trust_anchors")
-    val trustAnchors: String? = null,
+    val trustAnchors: String,
+    @SerialName("trust_kind")
+    val trustKind: TrustKind,
+    @SerialName("trust_uri")
+    val trustUri: String? = null,
     @SerialName("trust_config")
     val trustConfig: String? = null,
     @SerialName("allowed_list")
     val allowedList: String? = null,
+    @SerialName("trusted_ica_issuers")
+    val trustedIcaIssuers: List<String>? = null,
 )
+
+/**
+ * What a [TrustAnchor] is trusted for.
+ */
+@Serializable
+enum class TrustKind {
+    /** Certificates that sign C2PA claims. */
+    @SerialName("manifest")
+    MANIFEST,
+
+    /** Time-stamp authorities. */
+    @SerialName("tsa")
+    TSA,
+
+    /** Certificates and issuers behind CAWG identity assertions. */
+    @SerialName("cawg")
+    CAWG,
+}
 
 /**
  * Core settings for configuring fundamental behavior.
