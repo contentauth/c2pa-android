@@ -1339,4 +1339,166 @@ abstract class SignerTests : TestBase() {
             }
         }
     }
+
+    /** Returns the index of the first occurrence of [needle] in this array, or -1. */
+    private fun ByteArray.indexOfSequence(needle: ByteArray): Int {
+        if (needle.isEmpty() || needle.size > size) return -1
+        outer@ for (start in 0..size - needle.size) {
+            for (offset in needle.indices) {
+                if (this[start + offset] != needle[offset]) continue@outer
+            }
+            return start
+        }
+        return -1
+    }
+
+    private fun loadOcspResponse(name: String): ByteArray =
+        loadSharedResourceAsBytes(name) ?: throw IllegalArgumentException("Resource not found: $name")
+
+    /** Signs the shared test image with [signer] and returns the manifest bytes. */
+    private fun signForManifestBytes(signer: Signer): ByteArray? =
+        Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+            ByteArrayStream(loadResourceAsBytes("pexels_asadphoto_457882")).use { source ->
+                ByteArrayStream().use { dest ->
+                    builder.sign("image/jpeg", source, dest, signer).manifestBytes
+                }
+            }
+        }
+
+    /**
+     * Tests OCSP stapling: each stapled response adds its length to the reserve size, and the
+     * responses appear in the signed manifest in the order they were stapled.
+     */
+    suspend fun testSignerWithOcspResponse(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Signer OCSP Stapling") {
+            val first = loadOcspResponse("ocsp_response_good.der")
+            val second = loadOcspResponse("ocsp_response_good_2.der")
+            val signerInfo = SignerInfo(
+                SigningAlgorithm.ES256,
+                loadResourceAsString("es256_certs"),
+                loadResourceAsString("es256_private"),
+            )
+            val failures = mutableListOf<String>()
+
+            Signer.fromInfo(signerInfo).use { signer ->
+                val baseReserve = signer.reserveSize()
+                if (signer.withOcspResponse(first) !== signer) failures += "withOcspResponse did not return the signer"
+                if (signer.reserveSize() != baseReserve + first.size) {
+                    failures += "reserve after first staple is ${signer.reserveSize()}, " +
+                        "expected ${baseReserve + first.size}"
+                }
+                signer.withOcspResponse(second)
+                if (signer.reserveSize() != baseReserve + first.size + second.size) {
+                    failures += "reserve after second staple is ${signer.reserveSize()}"
+                }
+
+                val manifestBytes = signForManifestBytes(signer)
+                val firstAt = manifestBytes?.indexOfSequence(first) ?: -1
+                val secondAt = manifestBytes?.indexOfSequence(second) ?: -1
+                if (firstAt < 0) failures += "first response not found in the manifest"
+                if (secondAt < 0) failures += "second response not found in the manifest"
+                if (firstAt >= 0 && secondAt >= 0 && firstAt >= secondAt) {
+                    failures += "responses out of order: first at $firstAt, second at $secondAt"
+                }
+            }
+
+            TestResult(
+                "Signer OCSP Stapling",
+                failures.isEmpty(),
+                if (failures.isEmpty()) "OCSP responses are stapled in order" else "OCSP stapling failures",
+                failures.joinToString("; "),
+            )
+        }
+    }
+
+    /**
+     * Tests that an OCSP response that cannot be stapled raises an error and leaves the signer
+     * usable, because the native call does not consume the signer when it fails.
+     */
+    suspend fun testSignerWithOcspResponseEmpty(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Signer OCSP Stapling Empty Response") {
+            val signerInfo = SignerInfo(
+                SigningAlgorithm.ES256,
+                loadResourceAsString("es256_certs"),
+                loadResourceAsString("es256_private"),
+            )
+            val failures = mutableListOf<String>()
+
+            Signer.fromInfo(signerInfo).use { signer ->
+                val baseReserve = signer.reserveSize()
+                val error = try {
+                    signer.withOcspResponse(ByteArray(0))
+                    null
+                } catch (e: C2PAError) {
+                    e
+                }
+                if (error == null) failures += "empty response was accepted"
+                if (signer.reserveSize() != baseReserve) failures += "reserve size changed after a failed staple"
+                if (signForManifestBytes(signer).let { it == null || it.isEmpty() }) {
+                    failures += "signer could not sign after a failed staple"
+                }
+            }
+
+            TestResult(
+                "Signer OCSP Stapling Empty Response",
+                failures.isEmpty(),
+                if (failures.isEmpty()) {
+                    "A failed staple leaves the signer usable"
+                } else {
+                    "Failed staple handling failures"
+                },
+                failures.joinToString("; "),
+            )
+        }
+    }
+
+    /**
+     * Tests OCSP stapling on a callback signer: the callback still signs after the native
+     * handle is replaced, the response is in the manifest, and closing the signer is clean.
+     */
+    suspend fun testCallbackSignerWithOcspResponse(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Callback Signer OCSP Stapling") {
+            val response = loadOcspResponse("ocsp_response_good.der")
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+            val failures = mutableListOf<String>()
+            var signCallCount = 0
+
+            val signer = Signer.withCallback(SigningAlgorithm.ES256, certPem, null) { data ->
+                signCallCount++
+                SigningHelper.signWithPEMKey(data, keyPem, "ES256")
+            }
+            try {
+                val failedStaple = try {
+                    signer.withOcspResponse(ByteArray(0))
+                    false
+                } catch (e: C2PAError) {
+                    true
+                }
+                if (!failedStaple) failures += "empty response was accepted"
+
+                signer.withOcspResponse(response)
+                val manifestBytes = signForManifestBytes(signer)
+                if (signCallCount == 0) failures += "callback was not invoked after stapling"
+                if ((manifestBytes?.indexOfSequence(response) ?: -1) < 0) {
+                    failures += "response not found in the manifest"
+                }
+            } finally {
+                signer.close()
+            }
+            // Closing again must be a no-op.
+            signer.close()
+
+            TestResult(
+                "Callback Signer OCSP Stapling",
+                failures.isEmpty(),
+                if (failures.isEmpty()) {
+                    "Callback signer signs with a stapled OCSP response"
+                } else {
+                    "Callback stapling failures"
+                },
+                failures.joinToString("; "),
+            )
+        }
+    }
 }

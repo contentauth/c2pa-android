@@ -164,4 +164,22 @@ class AndroidSignerTests : SignerTests() {
         val result = testCawgCombinedStrongBoxIdentity()
         assertTrue(result.success, "CAWG Combined Signer (StrongBox Identity) test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestSignerWithOcspResponse() = runBlocking {
+        val result = testSignerWithOcspResponse()
+        assertTrue(result.success, "Signer OCSP Stapling test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestSignerWithOcspResponseEmpty() = runBlocking {
+        val result = testSignerWithOcspResponseEmpty()
+        assertTrue(result.success, "Signer OCSP Stapling Empty Response test failed: ${result.message}")
+    }
+
+    @Test
+    fun runTestCallbackSignerWithOcspResponse() = runBlocking {
+        val result = testCallbackSignerWithOcspResponse()
+        assertTrue(result.success, "Callback Signer OCSP Stapling test failed: ${result.message}")
+    }
 }

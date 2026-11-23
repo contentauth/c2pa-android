@@ -2277,5 +2277,72 @@ abstract class BuilderTests : TestBase() {
             }
         }
     }
-}
 
+    /**
+     * Tests the manifest label accessors: a new builder has no label, a label that is set is
+     * read back, the signed manifest is stored under it, and a label that is not a C2PA
+     * manifest URN makes signing fail.
+     */
+    suspend fun testBuilderLabel(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Builder Label") {
+            val label = "urn:c2pa:11111111-2222-4333-8444-555555555555"
+            val signerInfo = SignerInfo(
+                SigningAlgorithm.ES256,
+                loadResourceAsString("es256_certs"),
+                loadResourceAsString("es256_private"),
+            )
+            val sourceImage = loadResourceAsBytes("pexels_asadphoto_457882")
+            val failures = mutableListOf<String>()
+
+            val signed = Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                if (builder.label() != null) failures += "new builder has label ${builder.label()}"
+                if (builder.setLabel(label) !== builder) failures += "setLabel did not return the builder"
+                if (builder.label() != label) failures += "label read back as ${builder.label()}"
+
+                ByteArrayStream(sourceImage).use { source ->
+                    ByteArrayStream().use { dest ->
+                        Signer.fromInfo(signerInfo).use { signer ->
+                            builder.sign("image/jpeg", source, dest, signer)
+                        }
+                        dest.getData()
+                    }
+                }
+            }
+
+            val activeManifest = ByteArrayStream(signed).use { stream ->
+                Reader.fromStream("image/jpeg", stream).use { reader ->
+                    JSONObject(reader.json()).optString("active_manifest")
+                }
+            }
+            if (activeManifest != label) failures += "active manifest is $activeManifest"
+
+            val invalidLabelRejected = Builder.fromJson(TEST_MANIFEST_JSON).use { builder ->
+                builder.setLabel("not-a-manifest-urn")
+                ByteArrayStream(sourceImage).use { source ->
+                    ByteArrayStream().use { dest ->
+                        Signer.fromInfo(signerInfo).use { signer ->
+                            try {
+                                builder.sign("image/jpeg", source, dest, signer)
+                                false
+                            } catch (e: C2PAError) {
+                                true
+                            }
+                        }
+                    }
+                }
+            }
+            if (!invalidLabelRejected) failures += "signing accepted a label that is not a manifest URN"
+
+            TestResult(
+                "Builder Label",
+                failures.isEmpty(),
+                if (failures.isEmpty()) {
+                    "Builder label is set, read back and used for the signed manifest"
+                } else {
+                    "Builder label failures"
+                },
+                failures.joinToString("; "),
+            )
+        }
+    }
+}

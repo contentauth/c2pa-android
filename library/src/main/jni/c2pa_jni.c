@@ -1308,6 +1308,56 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setRemoteUrlNative(JNIE
     return result;
 }
 
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setLabelNative(JNIEnv *env, jobject obj, jlong builderPtr, jbyteArray label) {
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (label == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Label cannot be null");
+        return -1;
+    }
+
+    const char *clabel = jbytes_to_cstring(env, label);
+    if (clabel == NULL) {
+        return -1;
+    }
+
+    int result = c2pa_builder_set_label((struct C2paBuilder*)(uintptr_t)builderPtr, clabel);
+    release_cstring(clabel);
+    return result;
+}
+
+// Returns c2pa_builder_label's result: 1 with the label stored in out[0], 0 when
+// the builder has no label, -1 on error (the Kotlin wrapper raises C2PAError
+// from c2pa_error()).
+JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_labelNative(JNIEnv *env, jobject obj, jlong builderPtr, jobjectArray out) {
+    if (builderPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
+        return -1;
+    }
+    if (out == NULL || (*env)->GetArrayLength(env, out) < 1) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "Output array must have one element");
+        return -1;
+    }
+
+    char *label = NULL;
+    int result = c2pa_builder_label((struct C2paBuilder*)(uintptr_t)builderPtr, &label);
+    if (label != NULL) {
+        jbyteArray jlabel = cstring_to_jbytes(env, label);
+        c2pa_free(label);
+        if (jlabel == NULL) {
+            // The byte array could not be allocated. No Java exception is left
+            // pending, so record the cause for the Kotlin wrapper's C2PAError.
+            c2pa_error_set_last("Failed to allocate the label buffer");
+            return -1;
+        }
+        (*env)->SetObjectArrayElement(env, out, 0, jlabel);
+        (*env)->DeleteLocalRef(env, jlabel);
+    }
+    return result;
+}
+
 JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_Builder_setBasePathNative(JNIEnv *env, jobject obj, jlong builderPtr, jbyteArray basePath) {
     if (builderPtr == 0) {
         throw_checked(env, "java/lang/IllegalStateException", "Builder is closed");
@@ -1956,9 +2006,11 @@ static void unregister_signer_context(struct C2paSigner *signer) {
 }
 
 // Detach all context nodes keyed by a signer from the registry and return them
-// as a chain. Called BEFORE c2pa_identity_signer_create, which frees the input
-// signer allocations even on failure: their addresses must not remain registry
-// keys, or a concurrent signer allocated at a recycled address would alias them.
+// as a chain. Called BEFORE an FFI call that consumes the signer
+// (c2pa_identity_signer_create, which frees its inputs even on failure, and
+// c2pa_signer_with_ocsp_response, which frees its input on success): a consumed
+// signer's address must not remain a registry key, or a concurrent signer
+// allocated at a recycled address would alias it.
 static SignerContextNode *detach_signer_contexts(struct C2paSigner *signer) {
     SignerContextNode *detached = NULL;
 
@@ -1979,8 +2031,9 @@ static SignerContextNode *detach_signer_contexts(struct C2paSigner *signer) {
     return detached;
 }
 
-// Re-insert detached context nodes keyed to the combined signer that now owns
-// the consumed inputs' callbacks, so they are freed when it is freed.
+// Re-insert detached context nodes keyed to the signer that now owns the
+// callbacks (the signer an FFI call returned, or the input it left alive), so
+// they are freed when that signer is freed.
 static void attach_signer_contexts(SignerContextNode *nodes, struct C2paSigner *signer) {
     if (nodes == NULL) {
         return;
@@ -2208,6 +2261,48 @@ JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_reserveSizeNative(JNIEn
         return -1;
     }
     return c2pa_signer_reserve_size((struct C2paSigner*)(uintptr_t)signerPtr);
+}
+
+// Staples an OCSP response onto a signer. On success the FFI consumes the input
+// signer and returns a new one; on failure it returns NULL and the input signer
+// stays valid. Returns 0 on failure (the Kotlin wrapper raises C2PAError from
+// c2pa_error()).
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_Signer_withOcspResponseNative(JNIEnv *env, jobject obj, jlong signerPtr, jbyteArray response) {
+    if (signerPtr == 0) {
+        throw_checked(env, "java/lang/IllegalStateException", "Signer is closed");
+        return 0;
+    }
+    if (response == NULL) {
+        throw_checked(env, "java/lang/IllegalArgumentException", "OCSP response cannot be null");
+        return 0;
+    }
+
+    jsize responseLen = (*env)->GetArrayLength(env, response);
+    jbyte *responsePtr = (*env)->GetByteArrayElements(env, response, NULL);
+    if (responsePtr == NULL) {
+        check_exception(env);
+        return 0;
+    }
+
+    struct C2paSigner *signer = (struct C2paSigner*)(uintptr_t)signerPtr;
+
+    // Detach before the call: on success the input handle is dead and must not
+    // remain a registry key that a later signer could alias.
+    SignerContextNode *contexts = detach_signer_contexts(signer);
+
+    struct C2paSigner *stapled = c2pa_signer_with_ocsp_response(
+        signer,
+        (const unsigned char*)responsePtr,
+        (uintptr_t)responseLen
+    );
+
+    (*env)->ReleaseByteArrayElements(env, response, responsePtr, JNI_ABORT);
+
+    // Callback signers' global refs follow whichever signer is alive: the new
+    // one on success, the untouched input on failure.
+    attach_signer_contexts(contexts, stapled != NULL ? stapled : signer);
+
+    return (jlong)(uintptr_t)stapled;
 }
 
 JNIEXPORT void JNICALL Java_org_contentauth_c2pa_Signer_free(JNIEnv *env, jobject obj, jlong signerPtr) {

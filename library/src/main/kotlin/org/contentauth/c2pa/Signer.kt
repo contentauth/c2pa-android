@@ -237,6 +237,45 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
         return size.toInt()
     }
 
+    /**
+     * Staples an OCSP response into every signature this signer produces.
+     *
+     * A stapled response lets a validator check the revocation status of the signing
+     * certificate without a network request. The response is DER encoded, as returned by an
+     * OCSP responder.
+     *
+     * Calls stack. Call once per certificate along the chain, signing certificate first,
+     * because validators check the first response against the signing certificate. Each
+     * response adds its length to [reserveSize].
+     *
+     * The caller fetches the responses and keeps them fresh. OCSP responses expire, so create
+     * a new signer when they are refreshed.
+     *
+     * ```kotlin
+     * Signer.fromInfo(signerInfo).use { signer ->
+     *     signer.withOcspResponse(leafResponse).withOcspResponse(intermediateResponse)
+     *     builder.sign("image/jpeg", source, dest, signer)
+     * }
+     * ```
+     *
+     * Thread safety: a successful call replaces this signer's native handle and frees the
+     * previous one. Do not call it while another thread is signing with, or closing, the same
+     * signer. Staple the responses before the signer is shared.
+     *
+     * @param response A DER-encoded OCSP response. Must not be empty.
+     * @return This signer for fluent chaining
+     * @throws C2PAError.Api if the response cannot be stapled. The signer stays usable.
+     */
+    @Throws(C2PAError::class)
+    fun withOcspResponse(response: ByteArray): Signer {
+        val handle = withOcspResponseNative(ptr, response)
+        if (handle == 0L) {
+            throw C2PAError.Api(C2PA.getError() ?: "Failed to staple OCSP response")
+        }
+        ptr = handle
+        return this
+    }
+
     override fun close() {
         if (ptr != 0L) {
             free(ptr)
@@ -245,5 +284,6 @@ class Signer internal constructor(internal var ptr: Long) : Closeable {
     }
 
     private external fun reserveSizeNative(handle: Long): Long
+    private external fun withOcspResponseNative(handle: Long, response: ByteArray): Long
     private external fun free(handle: Long)
 }

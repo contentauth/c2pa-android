@@ -216,6 +216,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(builderTests.testJsonRoundTrip())
     results.add(builderTests.testBuilderSetIntent())
     results.add(builderTests.testBuilderAddAction())
+    results.add(builderTests.testBuilderLabel())
 
     // Signer Tests
     val signerTests = AppSignerTests(context)
@@ -240,6 +241,9 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(signerTests.testCawgRejectsClosedSigner())
     results.add(signerTests.testCawgRejectsInvalidInputs())
     results.add(signerTests.testCawgCombinedStrongBoxIdentity())
+    results.add(signerTests.testSignerWithOcspResponse())
+    results.add(signerTests.testSignerWithOcspResponseEmpty())
+    results.add(signerTests.testCallbackSignerWithOcspResponse())
 
     // Web Service Tests (if server is available)
     val webServiceTests = AppWebServiceTests(context)
