@@ -49,6 +49,11 @@ class C2PAContextBuilder internal constructor(private var ptr: Long) : Closeable
     // abandoned or the build fails.
     private val callbackContexts = mutableListOf<Long>()
 
+    // Ids of the native callback-context groups taken over from callback signers passed to
+    // setSigner. Ownership follows callbackContexts: transferred to the built C2PAContext, or
+    // released here if the builder is abandoned or the build fails.
+    private val signerContextGroups = mutableListOf<Long>()
+
     companion object {
         init {
             loadC2PALibraries()
@@ -96,6 +101,11 @@ class C2PAContextBuilder internal constructor(private var ptr: Long) : Closeable
      * `close()` on it (or wrapping it in a `use { }` block) is a safe no-op afterward. If a signer
      * is also configured via settings, the programmatic signer set here takes priority.
      *
+     * A callback signer's callback (for example one from [Signer.withCallback], [StrongBoxSigner]
+     * or [KeyStoreSigner]) is retained until the built [C2PAContext] is closed, like the progress
+     * and HTTP resolver callbacks. Finish signing before closing the context: a builder created
+     * from the context cannot sign with this signer afterwards.
+     *
      * @param signer The signer to attach (consumed by this call)
      * @return This builder for fluent chaining
      * @throws C2PAError.Api if the signer is already consumed/closed or cannot be attached
@@ -110,6 +120,9 @@ class C2PAContextBuilder internal constructor(private var ptr: Long) : Closeable
         signer.ptr = 0L
         if (result < 0) {
             throw C2PAError.Api(C2PA.getError() ?: "Failed to set context signer")
+        }
+        if (result > 0) {
+            signerContextGroups.add(result)
         }
         return this
     }
@@ -193,13 +206,14 @@ class C2PAContextBuilder internal constructor(private var ptr: Long) : Closeable
         ptr = 0L
         if (handle == 0L) {
             // The builder (and its registered callbacks) is gone; free the orphaned callback boxes.
-            callbackContexts.forEach { C2PAContext.releaseCallbackContext(it) }
-            callbackContexts.clear()
+            releaseUntransferredCallbacks()
             throw C2PAError.Api(C2PA.getError() ?: "Failed to build context")
         }
         val context = C2PAContext(handle)
         context.attachCallbackContexts(callbackContexts.toLongArray())
+        context.attachSignerContextGroups(signerContextGroups.toLongArray())
         callbackContexts.clear()
+        signerContextGroups.clear()
         return context
     }
 
@@ -209,15 +223,19 @@ class C2PAContextBuilder internal constructor(private var ptr: Long) : Closeable
             ptr = 0
         }
         // Free callbacks not transferred to a built context (builder abandoned without build()).
-        if (callbackContexts.isNotEmpty()) {
-            callbackContexts.forEach { C2PAContext.releaseCallbackContext(it) }
-            callbackContexts.clear()
-        }
+        releaseUntransferredCallbacks()
+    }
+
+    private fun releaseUntransferredCallbacks() {
+        callbackContexts.forEach { C2PAContext.releaseCallbackContext(it) }
+        callbackContexts.clear()
+        signerContextGroups.forEach { C2PAContext.releaseSignerContextGroup(it) }
+        signerContextGroups.clear()
     }
 
     private external fun free(handle: Long)
     private external fun setSettingsNative(handle: Long, settingsPtr: Long): Int
-    private external fun setSignerNative(handle: Long, signerPtr: Long): Int
+    private external fun setSignerNative(handle: Long, signerPtr: Long): Long
     private external fun setProgressCallbackNative(handle: Long, bridge: ProgressCallbackBridge): Long
     private external fun setHttpResolverNative(handle: Long, bridge: HttpResolverBridge): Long
     private external fun buildNative(handle: Long): Long

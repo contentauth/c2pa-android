@@ -13,6 +13,7 @@ each license.
 package org.contentauth.c2pa.test.shared
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -25,6 +26,7 @@ import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PA
 import org.contentauth.c2pa.C2PAContext
+import org.contentauth.c2pa.C2PAContextBuilder
 import org.contentauth.c2pa.C2PAError
 import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.CertificateManager
@@ -37,17 +39,23 @@ import org.contentauth.c2pa.SigningAlgorithm
 import org.contentauth.c2pa.StrongBoxSigner
 import org.contentauth.c2pa.derToRawSignature
 import java.io.File
+import java.lang.ref.WeakReference
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.KeyFactory
 import java.security.Signature
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
 
 /** SignerTests - Signing and signer-related tests */
 abstract class SignerTests : TestBase() {
 
     companion object {
+        // Bounds for waiting on the garbage collector to clear a released callback.
+        private const val GC_ATTEMPTS = 20
+        private const val GC_RETRY_DELAY_MS = 50L
+
         // Use 10.0.2.2 for Android emulator to access host's localhost
         private const val EMULATOR_SERVER_URL = "http://10.0.2.2:8080"
 
@@ -1496,6 +1504,106 @@ abstract class SignerTests : TestBase() {
                     "Callback signer signs with a stapled OCSP response"
                 } else {
                     "Callback stapling failures"
+                },
+                failures.joinToString("; "),
+            )
+        }
+    }
+
+    /** A sign callback that counts its invocations, so a test can also watch its reachability. */
+    private class TrackedSignCallback(
+        private val keyPem: String,
+        private val calls: AtomicInteger,
+    ) : (ByteArray) -> ByteArray {
+        override fun invoke(data: ByteArray): ByteArray {
+            calls.incrementAndGet()
+            return SigningHelper.signWithPEMKey(data, keyPem, "ES256")
+        }
+    }
+
+    // Built in a separate frame so no local keeps the callback reachable.
+    private fun contextBuilderWithTrackedSigner(
+        certPem: String,
+        keyPem: String,
+        calls: AtomicInteger,
+    ): Pair<C2PAContextBuilder, WeakReference<Any>> {
+        val callback = TrackedSignCallback(keyPem, calls)
+        val signer = Signer.withCallback(SigningAlgorithm.ES256, certPem, null, callback)
+        return C2PAContextBuilder.create().setSigner(signer) to WeakReference<Any>(callback)
+    }
+
+    /** Returns whether [reference] is cleared within a bounded number of garbage collections. */
+    private suspend fun isCollected(reference: WeakReference<Any>): Boolean {
+        repeat(GC_ATTEMPTS) {
+            if (reference.get() == null) return true
+            Runtime.getRuntime().gc()
+            System.runFinalization()
+            delay(GC_RETRY_DELAY_MS)
+        }
+        return reference.get() == null
+    }
+
+    /**
+     * Tests the lifetime of a callback signer handed to a context: the callback signs while the
+     * context is open, is released when the context is closed, is released when the context
+     * builder is closed without building, and a builder that outlives its context fails to sign
+     * with it instead of crashing.
+     */
+    suspend fun testContextSignerCallbackReleased(): TestResult = withContext(Dispatchers.IO) {
+        runTest("Context Signer Callback Released") {
+            val certPem = loadResourceAsString("es256_certs")
+            val keyPem = loadResourceAsString("es256_private")
+            val sourceImage = loadResourceAsBytes("pexels_asadphoto_457882")
+            val failures = mutableListOf<String>()
+
+            fun signThrough(builder: Builder): Long =
+                ByteArrayStream(sourceImage).use { source ->
+                    ByteArrayStream().use { dest ->
+                        builder.signWithContext("image/jpeg", source, dest).size
+                    }
+                }
+
+            // The callback signs while the context is open and is released when it closes.
+            val calls = AtomicInteger()
+            val (contextBuilder, callbackRef) = contextBuilderWithTrackedSigner(certPem, keyPem, calls)
+            val context = contextBuilder.build()
+            val signedSize = Builder.fromContext(context).withDefinition(TEST_MANIFEST_JSON).use { signThrough(it) }
+            if (signedSize <= 0 || calls.get() == 0) {
+                failures += "context signer did not sign (size $signedSize, calls ${calls.get()})"
+            }
+            // The same bounded wait that must see the callback collected after close must not see
+            // it collected before: that is what shows the wait can tell the two states apart.
+            if (isCollected(callbackRef)) failures += "callback was released while the context was open"
+            context.close()
+            if (!isCollected(callbackRef)) failures += "callback still reachable after the context was closed"
+
+            // A builder that is closed without build() releases the callback too.
+            val (abandonedBuilder, abandonedRef) = contextBuilderWithTrackedSigner(certPem, keyPem, AtomicInteger())
+            abandonedBuilder.close()
+            if (!isCollected(abandonedRef)) failures += "callback still reachable after the builder was closed"
+
+            // A builder that outlives its context cannot sign with the context's signer.
+            val lateCalls = AtomicInteger()
+            val (lateContextBuilder, _) = contextBuilderWithTrackedSigner(certPem, keyPem, lateCalls)
+            val lateContext = lateContextBuilder.build()
+            Builder.fromContext(lateContext).withDefinition(TEST_MANIFEST_JSON).use { builder ->
+                lateContext.close()
+                try {
+                    signThrough(builder)
+                    failures += "signing succeeded after the context was closed"
+                } catch (e: C2PAError) {
+                    // expected: the callback is gone, so the signer reports a failure
+                }
+            }
+            if (lateCalls.get() != 0) failures += "callback ran after the context was closed"
+
+            TestResult(
+                "Context Signer Callback Released",
+                failures.isEmpty(),
+                if (failures.isEmpty()) {
+                    "A context signer's callback lives exactly as long as the context"
+                } else {
+                    "Context signer callback lifetime failures"
                 },
                 failures.joinToString("; "),
             )

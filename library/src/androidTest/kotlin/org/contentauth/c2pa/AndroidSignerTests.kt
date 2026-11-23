@@ -182,4 +182,10 @@ class AndroidSignerTests : SignerTests() {
         val result = testCallbackSignerWithOcspResponse()
         assertTrue(result.success, "Callback Signer OCSP Stapling test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestContextSignerCallbackReleased() = runBlocking {
+        val result = testContextSignerCallbackReleased()
+        assertTrue(result.success, "Context Signer Callback Released test failed: ${result.message} ${result.details}")
+    }
 }
