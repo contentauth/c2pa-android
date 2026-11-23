@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import org.contentauth.c2pa.Builder
 import org.contentauth.c2pa.ByteArrayStream
 import org.contentauth.c2pa.C2PAContext
+import org.contentauth.c2pa.C2PAError
 import org.contentauth.c2pa.C2PASettings
 import org.contentauth.c2pa.Reader
 import org.contentauth.c2pa.Signer
@@ -589,6 +590,57 @@ abstract class SettingsDefinitionTests : TestBase() {
                 }
             }
         }
+
+    /**
+     * Test the time-stamp and HTTP request timeout settings: they serialize under the c2pa-rs
+     * names, load natively, and a value c2pa-rs rejects surfaces as a [C2PAError].
+     */
+    suspend fun testRequestTimeoutSettings(): TestResult = runTest("Request Timeout Settings") {
+        withContext(Dispatchers.IO) {
+            val definition = C2PASettingsDefinition(
+                version = 1,
+                core = CoreSettings(
+                    timeStampRequestAttempts = 5,
+                    timeStampRequestTimeoutInMs = 2000,
+                    timeStampRetryDelayInMs = 0,
+                    httpRequestTimeoutInMs = 4000,
+                ),
+                verify = VerifySettings(ocspFetchShouldOverride = true),
+            )
+
+            val json = definition.toJson()
+            check("\"time_stamp_request_attempts\":5" in json) { "time_stamp_request_attempts missing" }
+            check("\"time_stamp_request_timeout_in_ms\":2000" in json) {
+                "time_stamp_request_timeout_in_ms missing"
+            }
+            check("\"time_stamp_retry_delay_in_ms\":0" in json) { "time_stamp_retry_delay_in_ms missing" }
+            check("\"http_request_timeout_in_ms\":4000" in json) { "http_request_timeout_in_ms missing" }
+            check("\"ocsp_fetch_should_override\":true" in json) { "ocsp_fetch_should_override missing" }
+            check(C2PASettingsDefinition.fromJson(json) == definition) { "Timeout settings round-trip mismatch" }
+
+            C2PASettings.fromDefinition(definition).use { settings ->
+                C2PAContext.fromSettings(settings).close()
+            }
+
+            val rejected = listOf(
+                CoreSettings(timeStampRequestAttempts = 0) to "time_stamp_request_attempts",
+                CoreSettings(timeStampRequestTimeoutInMs = 0) to "time_stamp_request_timeout_in_ms",
+                CoreSettings(httpRequestTimeoutInMs = 0) to "http_request_timeout_in_ms",
+            )
+            for ((core, key) in rejected) {
+                val error = try {
+                    C2PASettings.fromDefinition(C2PASettingsDefinition(version = 1, core = core)).close()
+                    null
+                } catch (e: C2PAError) {
+                    e
+                }
+                check(error != null) { "$key = 0 should be rejected" }
+                check(error.message?.contains(key) == true) { "Error should name $key, got: ${error.message}" }
+            }
+
+            TestResult("Request Timeout Settings", true, "Timeout settings serialize, load and are validated")
+        }
+    }
 
     /** Test pretty JSON output. */
     suspend fun testPrettyJson(): TestResult = runTest("Settings Definition Pretty JSON") {

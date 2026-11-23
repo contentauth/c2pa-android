@@ -180,6 +180,26 @@ enum class TrustKind {
  * @property backingStoreMemoryThresholdInMb Memory threshold before spilling to disk in MB.
  * @property decodeIdentityAssertions Whether to decode identity assertions.
  * @property allowedNetworkHosts Allowed network host patterns for fetching remote resources.
+ * @property timeStampRequestAttempts How many times a time-stamp request is sent before its last
+ *   error is returned. Only transient failures are retried: no answer, a timeout, or an HTTP 408,
+ *   429, 500, 502, 503 or 504 response. `1` disables retries. Must be at least 1. The native
+ *   default is 3.
+ * @property timeStampRequestTimeoutInMs Time limit of each time-stamp request attempt, in
+ *   milliseconds. Must be positive. The native default is 10,000.
+ * @property timeStampRetryDelayInMs Pause before the second time-stamp request attempt, in
+ *   milliseconds, doubled before each later one. The native default is 500.
+ * @property httpRequestTimeoutInMs Total time limit, in milliseconds, of the other HTTP requests
+ *   the SDK makes: remote manifest fetches, OCSP fetches, CAWG `did:web` resolution and
+ *   settings-based remote signing. Must be positive. The native default is 10,000. Requires
+ *   c2pa-rs 0.92.1 or later. A custom [org.contentauth.c2pa.HttpResolver] is not interrupted by
+ *   this limit.
+ *
+ * ## Time-stamp retries
+ *
+ * With the native defaults, a time-stamp authority that does not answer holds a signing call
+ * for about 31 seconds before signing fails: three attempts of 10 seconds each, with pauses of
+ * 0.5 and 1 second between them. Lower [timeStampRequestAttempts] or
+ * [timeStampRequestTimeoutInMs] when signing must fail fast.
  */
 @Serializable
 data class CoreSettings(
@@ -193,6 +213,14 @@ data class CoreSettings(
     val decodeIdentityAssertions: Boolean? = null,
     @SerialName("allowed_network_hosts")
     val allowedNetworkHosts: List<String>? = null,
+    @SerialName("time_stamp_request_attempts")
+    val timeStampRequestAttempts: Int? = null,
+    @SerialName("time_stamp_request_timeout_in_ms")
+    val timeStampRequestTimeoutInMs: Long? = null,
+    @SerialName("time_stamp_retry_delay_in_ms")
+    val timeStampRetryDelayInMs: Long? = null,
+    @SerialName("http_request_timeout_in_ms")
+    val httpRequestTimeoutInMs: Long? = null,
 )
 
 /**
@@ -203,6 +231,8 @@ data class CoreSettings(
  * @property verifyTrust Whether to verify trust.
  * @property verifyTimestampTrust Whether to verify timestamp trust.
  * @property ocspFetch Whether to fetch OCSP responses.
+ * @property ocspFetchShouldOverride Whether to always try a live OCSP fetch first, even when the
+ *   manifest carries a stapled response. Implies [ocspFetch]. The native default is `false`.
  * @property remoteManifestFetch Whether to fetch remote manifests.
  * @property skipIngredientConflictResolution Whether to skip ingredient conflict resolution.
  * @property strictV1Validation Whether to use strict V1 validation.
@@ -219,6 +249,8 @@ data class VerifySettings(
     val verifyTimestampTrust: Boolean? = null,
     @SerialName("ocsp_fetch")
     val ocspFetch: Boolean? = null,
+    @SerialName("ocsp_fetch_should_override")
+    val ocspFetchShouldOverride: Boolean? = null,
     @SerialName("remote_manifest_fetch")
     val remoteManifestFetch: Boolean? = null,
     @SerialName("skip_ingredient_conflict_resolution")

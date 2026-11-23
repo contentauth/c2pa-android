@@ -303,6 +303,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(settingsDefinitionTests.testTrustAnchorsRoundTrip())
     results.add(settingsDefinitionTests.testLegacyTrustStringStillLoads())
     results.add(settingsDefinitionTests.testTrustAnchorsValidation())
+    results.add(settingsDefinitionTests.testRequestTimeoutSettings())
     results.add(settingsDefinitionTests.testPrettyJson())
     results.add(settingsDefinitionTests.testEnumSerialization())
     results.add(settingsDefinitionTests.testActionTemplates())
