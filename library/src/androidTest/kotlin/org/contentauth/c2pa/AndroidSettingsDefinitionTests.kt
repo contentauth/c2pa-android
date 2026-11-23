@@ -133,4 +133,10 @@ class AndroidSettingsDefinitionTests : SettingsDefinitionTests() {
         val result = testTrustAnchorsValidation()
         assertTrue(result.success, "Trust Anchors Validation test failed: ${result.message}")
     }
+
+    @Test
+    fun runTestRequestTimeoutSettings() = runBlocking {
+        val result = testRequestTimeoutSettings()
+        assertTrue(result.success, "Request Timeout Settings test failed: ${result.message}")
+    }
 }
