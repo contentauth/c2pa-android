@@ -194,15 +194,14 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
                 }
             """.trimIndent()
 
-            val settings = C2PASettings.create().apply {
-                updateFromString(settingsJson, "json")
+            // The settings and the context are only needed to create the builder; `use` closes
+            // each of them whether or not the next step succeeds.
+            return C2PASettings.create().use { settings ->
+                settings.updateFromString(settingsJson, "json")
+                C2PAContext.fromSettings(settings)
+            }.use { context ->
+                fromContext(context).withDefinition(manifestJSON)
             }
-            val context = C2PAContext.fromSettings(settings)
-            settings.close()
-
-            val builder = fromContext(context).withDefinition(manifestJSON)
-            context.close()
-            return builder
         }
 
         /**
@@ -282,10 +281,9 @@ class Builder internal constructor(private var ptr: Long) : Closeable {
                 throw C2PAError.Api(validation.errors.joinToString("; "))
             }
 
-            val context = C2PAContext.fromSettings(settings)
-            val builder = fromContext(context).withDefinition(manifestJSON)
-            context.close()
-            return builder
+            return C2PAContext.fromSettings(settings).use { context ->
+                fromContext(context).withDefinition(manifestJSON)
+            }
         }
 
         /**

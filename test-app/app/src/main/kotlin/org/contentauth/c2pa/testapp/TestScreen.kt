@@ -244,6 +244,7 @@ private suspend fun runAllTests(context: Context): List<TestResult> = withContex
     results.add(signerTests.testSignerWithOcspResponse())
     results.add(signerTests.testSignerWithOcspResponseEmpty())
     results.add(signerTests.testCallbackSignerWithOcspResponse())
+    results.add(signerTests.testContextSignerCallbackReleased())
 
     // Web Service Tests (if server is available)
     val webServiceTests = AppWebServiceTests(context)

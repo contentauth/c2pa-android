@@ -70,7 +70,7 @@ class C2PASettings internal constructor(internal var ptr: Long) : Closeable {
         @JvmStatic
         @Throws(C2PAError::class)
         fun fromDefinition(definition: C2PASettingsDefinition): C2PASettings =
-            create().updateFrom(definition)
+            create().closeOnFailure { it.updateFrom(definition) }
 
         @JvmStatic private external fun nativeNew(): Long
     }

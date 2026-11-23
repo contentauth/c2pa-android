@@ -13,6 +13,7 @@ each license.
 package org.contentauth.c2pa
 
 import android.util.Log
+import java.io.Closeable
 
 private const val TAG = "C2PA"
 
@@ -39,6 +40,26 @@ internal inline fun <T : Any> executeC2PAOperation(errorMessage: String, operati
         throw C2PAError.Api(error)
     }
     throw C2PAError.Api(e.message ?: "Runtime error")
+}
+
+/**
+ * Runs [block] on this object and returns the object. If [block] throws, the object is closed
+ * before the exception propagates, so a factory that creates a native object and then fails to
+ * configure it does not leak the object. A failure to close is added to the original exception
+ * as suppressed.
+ */
+internal inline fun <T : Closeable> T.closeOnFailure(block: (T) -> Unit): T {
+    try {
+        block(this)
+    } catch (e: Throwable) {
+        try {
+            close()
+        } catch (closeError: Throwable) {
+            e.addSuppressed(closeError)
+        }
+        throw e
+    }
+    return this
 }
 
 /**

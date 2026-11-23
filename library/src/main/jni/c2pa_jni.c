@@ -64,9 +64,14 @@ typedef struct {
     int refCount;
 } JavaContextCallback;
 
+// A registry entry is owned either by a signer handle (group == 0, keyed by
+// signer) or by a context that consumed the signer (group != 0, signer == NULL).
+// Group ids come from next_callback_id() and are never reused, so a grouped
+// entry can never be matched by a signer handle, live or recycled.
 typedef struct SignerContextNode {
     JavaSignerContext *context;
     struct C2paSigner *signer;
+    uintptr_t group;
     struct SignerContextNode *next;
 } SignerContextNode;
 
@@ -1950,6 +1955,7 @@ static void register_signer_context(struct C2paSigner *signer, JavaSignerContext
     SignerContextNode *node = (SignerContextNode*)malloc(sizeof(SignerContextNode));
     if (node != NULL) {
         node->signer = signer;
+        node->group = 0;
         node->context = context;
         
         pthread_mutex_lock(&g_signerContextsMutex);
@@ -1959,17 +1965,26 @@ static void register_signer_context(struct C2paSigner *signer, JavaSignerContext
     }
 }
 
-// Unregister all signer contexts associated with a signer (a CAWG combined
-// signer may carry more than one after attach_signer_contexts). Each context is
-// marked inactive and the registry's reference dropped; a context with an
-// in-flight callback stays allocated until that callback releases it.
-static void unregister_signer_context(struct C2paSigner *signer) {
+// Whether a registry entry belongs to the given owner: the group when one is
+// named, otherwise the signer handle (which never matches a grouped entry).
+static int signer_context_node_matches(const SignerContextNode *node, struct C2paSigner *signer, uintptr_t group) {
+    if (group != 0) {
+        return node->group == group;
+    }
+    return node->group == 0 && node->signer == signer;
+}
+
+// Unregister every signer context that belongs to an owner (see
+// signer_context_node_matches). Each context is marked inactive and the
+// registry's reference dropped; a context with an in-flight callback stays
+// allocated until that callback releases it.
+static void unregister_signer_contexts_matching(struct C2paSigner *signer, uintptr_t group) {
     SignerContextNode *toFree = NULL;
 
     pthread_mutex_lock(&g_signerContextsMutex);
     SignerContextNode **current = &g_signerContexts;
     while (*current != NULL) {
-        if ((*current)->signer == signer) {
+        if (signer_context_node_matches(*current, signer, group)) {
             SignerContextNode *node = *current;
             *current = node->next;
             JavaSignerContext *ctx = node->context;
@@ -2005,6 +2020,42 @@ static void unregister_signer_context(struct C2paSigner *signer) {
     }
 }
 
+// Unregister all signer contexts associated with a signer (a CAWG combined
+// signer may carry more than one after attach_signer_contexts).
+static void unregister_signer_context(struct C2paSigner *signer) {
+    unregister_signer_contexts_matching(signer, 0);
+}
+
+// Unregister all signer contexts a context took over from a consumed signer.
+static void unregister_signer_context_group(uintptr_t group) {
+    if (group != 0) {
+        unregister_signer_contexts_matching(NULL, group);
+    }
+}
+
+// Hand a signer's contexts over to a context that is about to consume the
+// signer. The entries stay in the registry, because a callback is only
+// invocable while its entry is registered, but they are re-keyed from the
+// signer handle to a fresh group id. Returns the group id, or 0 if the signer
+// has no contexts (it is not a callback signer).
+static uintptr_t regroup_signer_contexts(struct C2paSigner *signer) {
+    uintptr_t group = 0;
+
+    pthread_mutex_lock(&g_signerContextsMutex);
+    for (SignerContextNode *node = g_signerContexts; node != NULL; node = node->next) {
+        if (node->group == 0 && node->signer == signer) {
+            if (group == 0) {
+                group = next_callback_id();
+            }
+            node->group = group;
+            node->signer = NULL;
+        }
+    }
+    pthread_mutex_unlock(&g_signerContextsMutex);
+
+    return group;
+}
+
 // Detach all context nodes keyed by a signer from the registry and return them
 // as a chain. Called BEFORE an FFI call that consumes the signer
 // (c2pa_identity_signer_create, which frees its inputs even on failure, and
@@ -2017,7 +2068,7 @@ static SignerContextNode *detach_signer_contexts(struct C2paSigner *signer) {
     pthread_mutex_lock(&g_signerContextsMutex);
     SignerContextNode **current = &g_signerContexts;
     while (*current != NULL) {
-        if ((*current)->signer == signer) {
+        if ((*current)->group == 0 && (*current)->signer == signer) {
             SignerContextNode *node = *current;
             *current = node->next;
             node->next = detached;
@@ -2042,6 +2093,7 @@ static void attach_signer_contexts(SignerContextNode *nodes, struct C2paSigner *
     while (nodes != NULL) {
         SignerContextNode *next = nodes->next;
         nodes->signer = signer;
+        nodes->group = 0;
         nodes->next = g_signerContexts;
         g_signerContexts = nodes;
         nodes = next;
@@ -2438,6 +2490,14 @@ JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_freeCallbackContext
     release_context_callback(env, jctx);
 }
 
+// Releases the callback contexts a context took over from a callback signer set
+// through C2PAContextBuilder.setSigner. Called after the context itself is freed.
+JNIEXPORT void JNICALL Java_org_contentauth_c2pa_C2PAContext_freeSignerContextGroupNative(JNIEnv *env, jclass clazz, jlong group) {
+    if (group > 0) {
+        unregister_signer_context_group((uintptr_t)group);
+    }
+}
+
 // Context builder methods
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_nativeNew(JNIEnv *env, jclass clazz) {
     struct C2paContextBuilder *builder = c2pa_context_builder_new();
@@ -2459,7 +2519,9 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSettingsN
     );
 }
 
-JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr) {
+// Returns a negative value on error, otherwise the id of the signer context
+// group the built context must release (0 when the signer has no callbacks).
+JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNative(JNIEnv *env, jobject obj, jlong builderPtr, jlong signerPtr) {
     if (builderPtr == 0) {
         throw_checked(env, "java/lang/IllegalStateException", "C2PAContextBuilder is closed");
         return -1;
@@ -2468,11 +2530,24 @@ JNIEXPORT jint JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setSignerNat
         throw_checked(env, "java/lang/IllegalArgumentException", "Builder and signer cannot be null");
         return -1;
     }
-    // The FFI consumes the signer; the Kotlin wrapper zeros its pointer on success.
-    return c2pa_context_builder_set_signer(
+    struct C2paSigner *signer = (struct C2paSigner*)(uintptr_t)signerPtr;
+
+    // The FFI consumes the signer, so its handle stops naming it. Move a
+    // callback signer's contexts to a group the built context will own, before
+    // the handle goes away.
+    uintptr_t group = regroup_signer_contexts(signer);
+
+    int result = c2pa_context_builder_set_signer(
         (struct C2paContextBuilder*)(uintptr_t)builderPtr,
-        (struct C2paSigner*)(uintptr_t)signerPtr
+        signer
     );
+    if (result < 0) {
+        // The Kotlin wrapper drops the signer either way; nothing will invoke
+        // or release these contexts.
+        unregister_signer_context_group(group);
+        return -1;
+    }
+    return (jlong)group;
 }
 
 JNIEXPORT jlong JNICALL Java_org_contentauth_c2pa_C2PAContextBuilder_setProgressCallbackNative(JNIEnv *env, jobject obj, jlong builderPtr, jobject bridge) {

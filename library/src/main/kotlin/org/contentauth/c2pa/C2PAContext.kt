@@ -99,6 +99,15 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
          * [C2PAContextBuilder] to release callbacks orphaned by a failed or abandoned build.
          */
         internal fun releaseCallbackContext(callbackPtr: Long) = freeCallbackContextNative(callbackPtr)
+
+        @JvmStatic private external fun freeSignerContextGroupNative(group: Long)
+
+        /**
+         * Releases the callback contexts of a callback signer that was passed to
+         * [C2PAContextBuilder.setSigner]. Used by [C2PAContextBuilder] for a signer that never
+         * reached a built context.
+         */
+        internal fun releaseSignerContextGroup(group: Long) = freeSignerContextGroupNative(group)
     }
 
     /**
@@ -110,6 +119,12 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
     /** Transfers ownership of callback-context pointers from the builder to this context. */
     internal fun attachCallbackContexts(ptrs: LongArray) {
         callbackContextPtrs = ptrs
+    }
+
+    private var signerContextGroups: LongArray = LongArray(0)
+
+    internal fun attachSignerContextGroups(groups: LongArray) {
+        signerContextGroups = groups
     }
 
     /**
@@ -137,6 +152,10 @@ class C2PAContext internal constructor(internal var ptr: Long) : Closeable {
         if (callbackContextPtrs.isNotEmpty()) {
             callbackContextPtrs.forEach { freeCallbackContextNative(it) }
             callbackContextPtrs = LongArray(0)
+        }
+        if (signerContextGroups.isNotEmpty()) {
+            signerContextGroups.forEach { freeSignerContextGroupNative(it) }
+            signerContextGroups = LongArray(0)
         }
     }
 
